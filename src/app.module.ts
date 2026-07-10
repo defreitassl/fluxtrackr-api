@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AccountsModule } from './accounts/accounts.module';
 import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
 import { FixedExpensesModule } from './fixed-expenses/fixed-expenses.module';
@@ -11,6 +12,7 @@ import { TransactionsModule } from './transactions/transactions.module';
   imports: [
     HealthModule,
     AuthModule,
+    AccountsModule,
     TransactionsModule,
     CategoriesModule,
     FixedExpensesModule,

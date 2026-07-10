@@ -1,5 +1,5 @@
 import { IsEnum, IsISO8601, IsOptional, IsUUID } from 'class-validator';
-import { TransactionTypeDto } from './create-transaction.dto';
+import { PaymentMethodDto, TransactionTypeDto } from './create-transaction.dto';
 
 export class ListTransactionsDto {
   @IsOptional()
@@ -17,5 +17,12 @@ export class ListTransactionsDto {
   @IsOptional()
   @IsUUID()
   categoryId?: string;
-}
 
+  @IsOptional()
+  @IsUUID()
+  accountId?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethodDto)
+  paymentMethod?: PaymentMethodDto;
+}

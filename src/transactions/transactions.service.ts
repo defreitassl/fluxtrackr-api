@@ -18,6 +18,7 @@ export class TransactionsService {
       userId,
       createTransactionDto.categoryId,
     );
+    await this.ensureAccountBelongsToUser(userId, createTransactionDto.accountId);
 
     return this.prisma.transaction.create({
       data: {
@@ -26,6 +27,8 @@ export class TransactionsService {
         amount: createTransactionDto.amount,
         description: createTransactionDto.description,
         categoryId: createTransactionDto.categoryId,
+        accountId: createTransactionDto.accountId,
+        paymentMethod: createTransactionDto.paymentMethod,
         occurredAt: createTransactionDto.occurredAt
           ? new Date(createTransactionDto.occurredAt)
           : new Date(),
@@ -39,6 +42,8 @@ export class TransactionsService {
       userId,
       type: filters.type,
       categoryId: filters.categoryId,
+      accountId: filters.accountId,
+      paymentMethod: filters.paymentMethod,
       occurredAt:
         filters.startDate || filters.endDate
           ? {
@@ -78,6 +83,10 @@ export class TransactionsService {
       userId,
       updateTransactionDto.categoryId,
     );
+    await this.ensureAccountBelongsToUser(
+      userId,
+      updateTransactionDto.accountId,
+    );
 
     return this.prisma.transaction.update({
       where: { id },
@@ -89,6 +98,14 @@ export class TransactionsService {
           updateTransactionDto.categoryId === undefined
             ? undefined
             : updateTransactionDto.categoryId,
+        accountId:
+          updateTransactionDto.accountId === undefined
+            ? undefined
+            : updateTransactionDto.accountId,
+        paymentMethod:
+          updateTransactionDto.paymentMethod === undefined
+            ? undefined
+            : updateTransactionDto.paymentMethod,
         occurredAt: updateTransactionDto.occurredAt
           ? new Date(updateTransactionDto.occurredAt)
           : undefined,
@@ -124,6 +141,29 @@ export class TransactionsService {
 
     if (!category) {
       throw new BadRequestException('Invalid categoryId');
+    }
+  }
+
+  private async ensureAccountBelongsToUser(
+    userId: string,
+    accountId?: string | null,
+  ) {
+    if (!accountId) {
+      return;
+    }
+
+    const account = await this.prisma.account.findFirst({
+      where: {
+        id: accountId,
+        userId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!account) {
+      throw new BadRequestException('Invalid accountId');
     }
   }
 }

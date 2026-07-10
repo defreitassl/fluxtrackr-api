@@ -20,6 +20,14 @@ export enum TransactionSourceDto {
   telegram = 'telegram',
 }
 
+export enum PaymentMethodDto {
+  pix = 'pix',
+  debit = 'debit',
+  credit = 'credit',
+  cash = 'cash',
+  transfer = 'transfer',
+}
+
 export class CreateTransactionDto {
   @IsEnum(TransactionTypeDto)
   type!: TransactionTypeDto;
@@ -38,10 +46,17 @@ export class CreateTransactionDto {
   categoryId?: string;
 
   @IsOptional()
+  @IsUUID()
+  accountId?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethodDto)
+  paymentMethod?: PaymentMethodDto;
+
+  @IsOptional()
   @IsISO8601()
   occurredAt?: string;
 
   @IsEnum(TransactionSourceDto)
   source!: TransactionSourceDto;
 }
-

@@ -9,7 +9,11 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { TransactionSourceDto, TransactionTypeDto } from './create-transaction.dto';
+import {
+  PaymentMethodDto,
+  TransactionSourceDto,
+  TransactionTypeDto,
+} from './create-transaction.dto';
 
 export class UpdateTransactionDto {
   @IsOptional()
@@ -32,6 +36,14 @@ export class UpdateTransactionDto {
   categoryId?: string | null;
 
   @IsOptional()
+  @IsUUID()
+  accountId?: string | null;
+
+  @IsOptional()
+  @IsEnum(PaymentMethodDto)
+  paymentMethod?: PaymentMethodDto | null;
+
+  @IsOptional()
   @IsISO8601()
   occurredAt?: string;
 
@@ -39,4 +51,3 @@ export class UpdateTransactionDto {
   @IsEnum(TransactionSourceDto)
   source?: TransactionSourceDto;
 }
-

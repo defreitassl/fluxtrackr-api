@@ -55,6 +55,7 @@ npm run build
 - `GET /health`
 - `POST /auth/login`
 - `GET/POST/PATCH/DELETE /transactions`
+- `GET/POST/PATCH/DELETE /accounts`
 - `GET/POST/PATCH/DELETE /categories`
 - `GET/POST/PATCH/DELETE /fixed-expenses`
 - `GET/POST/PATCH/DELETE /fixed-incomes`

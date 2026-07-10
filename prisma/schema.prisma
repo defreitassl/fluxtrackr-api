@@ -22,6 +22,52 @@ enum CategoryType {
   both
 }
 
+enum PaymentMethod {
+  pix
+  debit
+  credit
+  cash
+  transfer
+}
+
+enum AccountType {
+  checking
+  savings
+  wallet
+  cash
+  investment
+  other
+}
+
+enum CreditCardInvoiceStatus {
+  open
+  closed
+  paid
+  overdue
+  canceled
+}
+
+enum InstallmentStatus {
+  pending
+  paid
+  canceled
+}
+
+enum RecurrenceType {
+  once
+  monthly
+  yearly
+  semiannual
+  custom
+}
+
+enum FinancialEventStatus {
+  planned
+  confirmed
+  postponed
+  canceled
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -34,6 +80,12 @@ model User {
   transactions  Transaction[]
   fixedExpenses FixedExpense[]
   fixedIncomes  FixedIncome[]
+  accounts      Account[]
+  creditCards   CreditCard[]
+  invoices      CreditCardInvoice[]
+  installments  Installment[]
+  events        FinancialEvent[]
+  subscriptions Subscription[]
 }
 
 model Category {
@@ -44,30 +96,39 @@ model Category {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+  installments  Installment[]
+  events        FinancialEvent[]
+  subscriptions Subscription[]
 
   @@unique([userId, name])
   @@index([userId])
 }
 
 model Transaction {
-  id          String            @id @default(uuid())
-  userId      String
-  type        TransactionType
-  amount      Decimal           @db.Decimal(12, 2)
-  description String
-  categoryId  String?
-  occurredAt  DateTime
-  source      TransactionSource
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id            String            @id @default(uuid())
+  userId        String
+  type          TransactionType
+  amount        Decimal           @db.Decimal(12, 2)
+  description   String
+  categoryId    String?
+  accountId     String?
+  paymentMethod PaymentMethod?
+  occurredAt    DateTime
+  source        TransactionSource
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category                Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account                 Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  confirmedFinancialEvent FinancialEvent?    @relation("ConfirmedFinancialEvent")
+  paidCreditCardInvoice   CreditCardInvoice? @relation("InvoicePaymentTransaction")
 
   @@index([userId, occurredAt])
   @@index([categoryId])
+  @@index([accountId])
 }
 
 model FixedExpense {
@@ -85,6 +146,166 @@ model FixedExpense {
   @@index([userId])
 }
 
+model Account {
+  id             String      @id @default(uuid())
+  userId         String
+  name           String
+  bank           String?
+  type           AccountType
+  color          String?
+  icon           String?
+  initialBalance Decimal     @db.Decimal(12, 2)
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+  invoices      CreditCardInvoice[]
+  events        FinancialEvent[]
+  subscriptions Subscription[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model CreditCard {
+  id              String   @id @default(uuid())
+  userId          String
+  name            String
+  bank            String?
+  brand           String?
+  lastFourDigits  String?
+  limit           Decimal  @db.Decimal(12, 2)
+  dueDay          Int
+  bestPurchaseDay Int?
+  color           String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invoices      CreditCardInvoice[]
+  installments  Installment[]
+  events        FinancialEvent[]
+  subscriptions Subscription[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model CreditCardInvoice {
+  id                String                  @id @default(uuid())
+  userId            String
+  creditCardId      String
+  accountId         String?
+  month             Int
+  year              Int
+  dueDate           DateTime
+  closingDate       DateTime?
+  status            CreditCardInvoiceStatus @default(open)
+  paidAt            DateTime?
+  paidAmount        Decimal?                @db.Decimal(12, 2)
+  paidTransactionId String?                 @unique
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creditCard      CreditCard    @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  account         Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  installments    Installment[]
+  paidTransaction Transaction?  @relation("InvoicePaymentTransaction", fields: [paidTransactionId], references: [id], onDelete: SetNull)
+
+  @@unique([creditCardId, year, month])
+  @@index([userId, year, month])
+  @@index([creditCardId])
+  @@index([accountId])
+}
+
+model Installment {
+  id                  String            @id @default(uuid())
+  userId              String
+  creditCardId        String
+  invoiceId           String?
+  categoryId          String?
+  description         String
+  totalPurchaseAmount Decimal           @db.Decimal(12, 2)
+  installmentAmount   Decimal           @db.Decimal(12, 2)
+  installmentNumber   Int
+  installmentCount    Int
+  purchaseDate        DateTime
+  dueDate             DateTime
+  status              InstallmentStatus @default(pending)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creditCard CreditCard         @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  invoice    CreditCardInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  category   Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, dueDate])
+  @@index([creditCardId])
+  @@index([invoiceId])
+  @@index([categoryId])
+}
+
+model FinancialEvent {
+  id                     String               @id @default(uuid())
+  userId                 String
+  type                   TransactionType
+  name                   String
+  expectedAmount         Decimal              @db.Decimal(12, 2)
+  date                   DateTime
+  categoryId             String?
+  accountId              String?
+  creditCardId           String?
+  recurrence             RecurrenceType       @default(once)
+  status                 FinancialEventStatus @default(planned)
+  notes                  String?
+  confirmedTransactionId String?              @unique
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category             Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account              Account?     @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  creditCard           CreditCard?  @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  confirmedTransaction Transaction? @relation("ConfirmedFinancialEvent", fields: [confirmedTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([categoryId])
+  @@index([accountId])
+  @@index([creditCardId])
+}
+
+model Subscription {
+  id             String         @id @default(uuid())
+  userId         String
+  name           String
+  amount         Decimal        @db.Decimal(12, 2)
+  nextChargeDate DateTime
+  recurrence     RecurrenceType
+  categoryId     String?
+  accountId      String?
+  creditCardId   String?
+  autoRenew      Boolean        @default(true)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account    Account?    @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  creditCard CreditCard? @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, name])
+  @@index([userId, nextChargeDate])
+  @@index([categoryId])
+  @@index([accountId])
+  @@index([creditCardId])
+}
+
 model FixedIncome {
   id         String   @id @default(uuid())
   userId     String
@@ -99,4 +320,3 @@ model FixedIncome {
 
   @@index([userId])
 }
-
