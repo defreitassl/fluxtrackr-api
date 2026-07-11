@@ -71,6 +71,11 @@ function harness(options: {
     },
   };
   const prisma = {
+    creditCardInvoice: {
+      findMany: async () => [invoice],
+      findFirst: async ({ where }: any) =>
+        where.userId === invoice.userId ? invoice : null,
+    },
     $transaction: async (operation: any) => {
       const snapshot = {
         status: invoice.status,
@@ -106,6 +111,33 @@ function harness(options: {
 const payment = { accountId: '00000000-0000-4000-8000-000000000001', paidAt: '2026-08-07T12:00:00.000Z' };
 
 describe('CreditCardInvoicesService pay', () => {
+  it('shows invoice total without canceled installments', async () => {
+    const context = harness({
+      amounts: [
+        { amount: '90.00' },
+        { amount: '10.00', status: 'canceled' },
+      ],
+    });
+    const invoice = await context.service.findOne('user', 'invoice');
+    assert.equal(invoice.totalAmount.toFixed(2), '90.00');
+  });
+
+  it('uses the same total in invoice queries and payment', async () => {
+    const context = harness({
+      amounts: [
+        { amount: '100.10' },
+        { amount: '200.20' },
+        { amount: '50.00', status: 'canceled' },
+      ],
+    });
+    const queriedInvoice = await context.service.findOne('user', 'invoice');
+    const paidInvoice = await context.service.pay('user', 'invoice', payment);
+    assert.equal(
+      queriedInvoice.totalAmount.toFixed(2),
+      paidInvoice.totalAmount.toFixed(2),
+    );
+  });
+
   it('pays the full total, creates the bank transaction, and updates invoice and installments', async () => {
     const context = harness({ amounts: [{ amount: '100.10' }, { amount: '200.20' }] });
     const result = await context.service.pay('user', 'invoice', payment);

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { calculateCreditCardInvoiceTotal } from './credit-card-invoice-total';
 import { ListCreditCardInvoicesDto } from './dto/list-credit-card-invoices.dto';
 import { PayCreditCardInvoiceDto } from './dto/pay-credit-card-invoice.dto';
 
@@ -68,12 +69,9 @@ export class CreditCardInvoicesService {
       });
       if (!account) throw new NotFoundException('Account not found');
 
-      const totalAmount = invoice.installments
-        .filter((installment) => installment.status !== 'canceled')
-        .reduce(
-          (total, installment) => total.add(installment.installmentAmount),
-          new Prisma.Decimal(0),
-        );
+      const totalAmount = calculateCreditCardInvoiceTotal(
+        invoice.installments,
+      );
       if (totalAmount.lessThanOrEqualTo(0)) {
         throw new BadRequestException(
           'Credit card invoice total must be greater than zero',
@@ -146,11 +144,12 @@ export class CreditCardInvoicesService {
   }
 
   private withTotal<
-    T extends { installments: { installmentAmount: Prisma.Decimal }[] },
+    T extends {
+      installments: { installmentAmount: Prisma.Decimal; status: string }[];
+    },
   >(invoice: T) {
-    const totalAmount = invoice.installments.reduce(
-      (sum, item) => sum.add(item.installmentAmount),
-      new Prisma.Decimal(0),
+    const totalAmount = calculateCreditCardInvoiceTotal(
+      invoice.installments,
     );
     return { ...invoice, totalAmount };
   }
