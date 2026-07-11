@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,6 +12,10 @@ import {
 } from 'class-validator';
 
 export class UpdateCreditCardDto {
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
   @IsOptional()
   @IsUUID()
   accountId?: string | null;

@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { AuthenticatedRequest } from '../common/types/authenticated-request';
 import { CreditCardsService } from './credit-cards.service';
 import { CreateCreditCardDto } from './dto/create-credit-card.dto';
 import { UpdateCreditCardDto } from './dto/update-credit-card.dto';
+import { ListCreditCardsDto } from './dto/list-credit-cards.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('credit-cards')
@@ -27,8 +29,11 @@ export class CreditCardsController {
   }
 
   @Get()
-  findMany(@Req() request: AuthenticatedRequest) {
-    return this.creditCardsService.findMany(request.user.id);
+  findMany(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: ListCreditCardsDto,
+  ) {
+    return this.creditCardsService.findMany(request.user.id, query);
   }
 
   @Get(':id')

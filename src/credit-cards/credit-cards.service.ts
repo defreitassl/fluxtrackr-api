@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCreditCardDto } from './dto/create-credit-card.dto';
 import { UpdateCreditCardDto } from './dto/update-credit-card.dto';
+import { ListCreditCardsDto } from './dto/list-credit-cards.dto';
 
 @Injectable()
 export class CreditCardsService {
@@ -26,9 +27,9 @@ export class CreditCardsService {
     }
   }
 
-  findMany(userId: string) {
+  findMany(userId: string, query: ListCreditCardsDto) {
     return this.prisma.creditCard.findMany({
-      where: { userId },
+      where: { userId, isActive: query.isActive ?? true },
       orderBy: { name: 'asc' },
     });
   }
@@ -62,9 +63,12 @@ export class CreditCardsService {
 
   async remove(userId: string, id: string) {
     await this.findOne(userId, id);
-    await this.prisma.creditCard.delete({ where: { id } });
+    await this.prisma.creditCard.update({
+      where: { id },
+      data: { isActive: false },
+    });
 
-    return { deleted: true };
+    return { archived: true };
   }
 
   private async ensureAccountBelongsToUser(

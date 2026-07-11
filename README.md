@@ -58,7 +58,7 @@ npm run build
 - `GET/POST/PATCH/DELETE /accounts`
 - `GET/POST/PATCH/DELETE /credit-cards`
 - `GET/POST /credit-card-purchases` e `GET /credit-card-purchases/:id`
-- `GET /credit-card-invoices` e `GET /credit-card-invoices/:id`
+- `GET /credit-card-invoices`, `GET /credit-card-invoices/:id` e `POST /credit-card-invoices/:id/pay`
 - `GET/POST/PATCH/DELETE /categories`
 - `GET/POST/PATCH/DELETE /fixed-expenses`
 - `GET/POST/PATCH/DELETE /fixed-incomes`
@@ -87,7 +87,14 @@ curl 'http://localhost:3001/credit-card-invoices?creditCardId=CARD_ID&year=2026&
 
 curl 'http://localhost:3001/credit-card-invoices/INVOICE_ID' \
   -H 'Authorization: Bearer TOKEN'
+
+curl -X POST 'http://localhost:3001/credit-card-invoices/INVOICE_ID/pay' \
+  -H 'Authorization: Bearer TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{"accountId":"ACCOUNT_ID","paidAt":"2026-08-07T12:00:00.000Z"}'
 ```
+
+O pagamento e integral, soma as parcelas nao canceladas e cria uma `Transaction` de despesa na conta pagadora. `paidAt` e opcional. Pagamento parcial, juros, estorno e alteracao direta de saldo nao fazem parte deste fluxo.
 
 Validacao completa:
 

@@ -1,0 +1,2 @@
+ALTER TABLE "CreditCard"
+ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true;
