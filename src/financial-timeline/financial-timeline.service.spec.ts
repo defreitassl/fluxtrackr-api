@@ -28,6 +28,8 @@ function harness(data: Record<string, any[]> = {}) {
     financialEvent: model('financialEvent'),
     creditCardInvoice: model('creditCardInvoice'),
     fixedOccurrence: model('fixedOccurrence'),
+    accountTransfer: model('accountTransfer'),
+    accountBalanceAdjustment: model('accountBalanceAdjustment'),
   };
   return {
     service: new FinancialTimelineService(prisma as any),
@@ -51,6 +53,8 @@ describe('FinancialTimelineService range and queries', () => {
       'financialEvent',
       'creditCardInvoice',
       'fixedOccurrence',
+      'accountTransfer',
+      'accountBalanceAdjustment',
     ]) {
       assert.equal(context.calls[source][0].where.userId, 'user-1');
     }
@@ -114,6 +118,29 @@ describe('FinancialTimelineService range and queries', () => {
 });
 
 describe('FinancialTimelineService aggregation', () => {
+  it('shows transfers and adjustments once as informational without changing summaries', async () => {
+    const context = harness({
+      accountTransfer: [{
+        id: 'transfer', sourceAccountId: 'source', destinationAccountId: 'destination',
+        amount: decimal(250), description: 'Reserve', occurredAt: new Date('2099-02-15T10:00:00.000Z'),
+      }],
+      accountBalanceAdjustment: [{
+        id: 'adjustment', accountId: 'account', previousBalance: decimal(100),
+        newBalance: decimal(150), difference: decimal(50), reason: 'Conference',
+        occurredAt: new Date('2099-02-16T10:00:00.000Z'),
+      }],
+    });
+    const result = await context.service.findMany('user', query());
+    const transfer = result.items.find((item) => item.id === 'transfer')!;
+    const adjustment = result.items.find((item) => item.id === 'adjustment')!;
+    assert.equal(transfer.type, 'transfer');
+    assert.equal(adjustment.type, 'adjustment');
+    assert.equal(transfer.balanceImpact, 'informational');
+    assert.equal(adjustment.balanceImpact, 'informational');
+    assert.deepEqual(result.summary, {
+      realizedIncome: '0.00', realizedExpense: '0.00', projectedIncome: '0.00', projectedExpense: '0.00',
+    });
+  });
   it('includes confirmed events as projected and excludes realized linked events', async () => {
     const context = harness({
       financialEvent: [{

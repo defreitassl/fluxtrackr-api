@@ -15,44 +15,36 @@ const item = (overrides: Record<string, unknown> = {}): any => ({
   creditCardId: null, categoryId: null, metadata: {}, ...overrides,
 });
 
-function harness(options: { accounts?: any[]; transactions?: any[]; items?: any[] } = {}) {
+function harness(options: { currentBalance?: string; items?: any[] } = {}) {
   const calls: any = {};
-  const prisma = {
-    account: { findMany: async (args: any) => (calls.accounts = args, options.accounts ?? []) },
-    transaction: { findMany: async (args: any) => (calls.transactions = args, options.transactions ?? []) },
-  };
   const timeline = {
     findMany: async (userId: string, query: any, optionsArg: any) => {
       calls.timeline = { userId, query, options: optionsArg };
       return { items: options.items ?? [] };
     },
   };
-  return { service: new BalanceForecastService(prisma as any, timeline as any), calls };
+  const balances = {
+    getConsolidatedBalance: async (userId: string, date: Date) => {
+      calls.balance = { userId, asOf: date };
+      return decimal(options.currentBalance ?? '0');
+    },
+  };
+  return { service: new BalanceForecastService(timeline as any, balances as any), calls };
 }
 
 describe('BalanceForecastService queries and current balance', () => {
-  it('isolates account, transaction, and timeline reads by authenticated user', async () => {
+  it('delegates consolidated balance and timeline reads with authenticated user', async () => {
     const context = harness();
     await context.service.getForecast('owner', { asOf: asOf.toISOString(), horizonDays: 1 });
-    assert.equal(context.calls.accounts.where.userId, 'owner');
-    assert.equal(context.calls.transactions.where.userId, 'owner');
-    assert.equal(context.calls.transactions.where.account.is.userId, 'owner');
+    assert.equal(context.calls.balance.userId, 'owner');
     assert.equal(context.calls.timeline.userId, 'owner');
   });
 
-  it('sums active account initial balances and realized transactions through asOf', async () => {
-    const context = harness({
-      accounts: [{ initialBalance: decimal('100.10') }, { initialBalance: decimal('200.20') }],
-      transactions: [
-        { type: 'income', amount: decimal('50.05') },
-        { type: 'expense', amount: decimal('20.02') },
-      ],
-    });
+  it('uses the shared consolidated balance through exact asOf', async () => {
+    const context = harness({ currentBalance: '330.33' });
     const result = await context.service.getForecast('owner', { asOf: asOf.toISOString(), horizonDays: 1 });
     assert.equal(result.currentBalance, '330.33');
-    assert.deepEqual(context.calls.accounts.where, { userId: 'owner', isActive: true });
-    assert.equal(context.calls.transactions.where.occurredAt.lte.toISOString(), asOf.toISOString());
-    assert.deepEqual(context.calls.transactions.where.account.is, { userId: 'owner', isActive: true });
+    assert.equal(context.calls.balance.asOf.toISOString(), asOf.toISOString());
   });
 
   it('queries through the larger of the requested horizon and 30 days', async () => {
@@ -69,11 +61,11 @@ describe('BalanceForecastService queries and current balance', () => {
 
   it('keeps current balance at exact asOf while including same-day midnight commitments', async () => {
     const context = harness({
-      transactions: [{ type: 'income', amount: decimal('100.00') }],
+      currentBalance: '100.00',
       items: [item({ date: '2026-08-01T00:00:00.000Z', amount: '25.00' })],
     });
     const result = await context.service.getForecast('owner', { asOf: asOf.toISOString(), horizonDays: 1 });
-    assert.equal(context.calls.transactions.where.occurredAt.lte.toISOString(), asOf.toISOString());
+    assert.equal(context.calls.balance.asOf.toISOString(), asOf.toISOString());
     assert.equal(context.calls.timeline.query.startDate, '2026-08-01T00:00:00.000Z');
     assert.equal(context.calls.timeline.options.referenceDate.toISOString(), asOf.toISOString());
     assert.equal(context.calls.timeline.query.endDate, '2026-08-30T23:59:59.999Z');

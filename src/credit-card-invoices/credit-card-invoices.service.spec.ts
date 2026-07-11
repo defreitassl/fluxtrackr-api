@@ -11,6 +11,7 @@ function harness(options: {
   paidTransactionId?: string | null;
   owner?: string;
   accountOwner?: string;
+  accountActive?: boolean;
   amounts?: Array<{ amount: string; status?: 'pending' | 'paid' | 'canceled' }>;
   failInvoiceUpdate?: boolean;
 } = {}) {
@@ -52,7 +53,10 @@ function harness(options: {
     },
     account: {
       findFirst: async ({ where }: any) =>
-        where.userId === (options.accountOwner ?? 'user') ? { id: where.id } : null,
+        where.userId === (options.accountOwner ?? 'user') &&
+        where.isActive === true && options.accountActive !== false
+          ? { id: where.id }
+          : null,
     },
     transaction: {
       create: async ({ data }: any) => {
@@ -111,6 +115,13 @@ function harness(options: {
 const payment = { accountId: '00000000-0000-4000-8000-000000000001', paidAt: '2026-08-07T12:00:00.000Z' };
 
 describe('CreditCardInvoicesService pay', () => {
+  it('rejects archived payment account without side effects', async () => {
+    const context = harness({ accountActive: false });
+    await assert.rejects(() => context.service.pay('user', 'invoice', payment), NotFoundException);
+    assert.equal(context.transactions.length, 0);
+    assert.equal(context.invoice.status, 'open');
+    assert.equal(context.counts().invoiceUpdates, 0);
+  });
   it('shows invoice total without canceled installments', async () => {
     const context = harness({
       amounts: [

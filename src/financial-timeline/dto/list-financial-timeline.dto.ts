@@ -1,6 +1,12 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsISO8601, IsOptional } from 'class-validator';
-import { TransactionTypeDto } from '../../transactions/dto/create-transaction.dto';
+
+export enum FinancialTimelineTypeDto {
+  income = 'income',
+  expense = 'expense',
+  transfer = 'transfer',
+  adjustment = 'adjustment',
+}
 
 export enum FinancialTimelineSourceTypeDto {
   transaction = 'transaction',
@@ -8,6 +14,8 @@ export enum FinancialTimelineSourceTypeDto {
   credit_card_invoice = 'credit_card_invoice',
   fixed_expense = 'fixed_expense',
   fixed_income = 'fixed_income',
+  account_transfer = 'account_transfer',
+  account_balance_adjustment = 'account_balance_adjustment',
 }
 
 export class ListFinancialTimelineDto {
@@ -18,8 +26,8 @@ export class ListFinancialTimelineDto {
   endDate!: string;
 
   @IsOptional()
-  @IsEnum(TransactionTypeDto)
-  type?: TransactionTypeDto;
+  @IsEnum(FinancialTimelineTypeDto)
+  type?: FinancialTimelineTypeDto;
 
   @IsOptional()
   @IsEnum(FinancialTimelineSourceTypeDto)

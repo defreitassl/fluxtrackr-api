@@ -37,11 +37,12 @@ export function buildDashboardBalance(
   daysRemainingInMonth: number,
 ) {
   const availableToSpend = totalBalance.minus(committed);
-  const recommended = availableToSpend.greaterThan(0)
-    ? availableToSpend.dividedBy(daysRemainingInMonth)
+  const availableBeforeTodaySpending = availableToSpend.plus(spentToday);
+  const recommended = availableBeforeTodaySpending.greaterThan(0)
+    ? availableBeforeTodaySpending.dividedBy(daysRemainingInMonth)
     : ZERO();
   const remainingToday = recommended.minus(spentToday);
-  const status: DailySpendingStatus = availableToSpend.lessThanOrEqualTo(0)
+  const status: DailySpendingStatus = availableBeforeTodaySpending.lessThanOrEqualTo(0)
     ? 'no_available_balance'
     : spentToday.greaterThan(recommended)
       ? 'over_plan'
@@ -82,9 +83,12 @@ export class DashboardOverviewService {
       invoices,
       fixedOccurrences,
       financialEvents,
-      spentTodayAggregate,
+      spentTodayTransactions,
+      spentTodayCardInstallments,
       timeline,
       latestTransactions,
+      latestTransfers,
+      latestAdjustments,
     ] = await Promise.all([
       this.forecast.getForecast(userId, {
         asOf: asOf.toISOString(),
@@ -129,8 +133,26 @@ export class DashboardOverviewService {
           type: 'expense',
           occurredAt: { gte: dayStart, lte: asOf },
           account: { is: { userId, isActive: true } },
+          paidCreditCardInvoice: { is: null },
+          realizedFixedOccurrence: { is: null },
+          confirmedFinancialEvent: { is: null },
         },
         _sum: { amount: true },
+      }),
+      this.prisma.installment.aggregate({
+        where: {
+          userId,
+          status: { not: 'canceled' },
+          invoice: { is: { dueDate: { lte: monthEnd } } },
+          purchase: {
+            is: {
+              userId,
+              purchaseDate: { gte: dayStart, lte: asOf },
+              confirmedFinancialEvent: { is: null },
+            },
+          },
+        },
+        _sum: { installmentAmount: true },
       }),
       this.timeline.findMany(
         userId,
@@ -161,6 +183,16 @@ export class DashboardOverviewService {
         orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
         take: 5,
       }),
+      this.prisma.accountTransfer.findMany({
+        where: { userId, occurredAt: { lte: asOf } },
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+        take: 5,
+      }),
+      this.prisma.accountBalanceAdjustment.findMany({
+        where: { userId, occurredAt: { lte: asOf } },
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+        take: 5,
+      }),
     ]);
 
     const invoiceTotals = invoices.map((invoice) => ({
@@ -185,14 +217,52 @@ export class DashboardOverviewService {
       .plus(committedOccurrences)
       .plus(committedEvents);
     const totalBalance = new Prisma.Decimal(forecast.currentBalance);
-    const spentToday = spentTodayAggregate._sum.amount ?? ZERO();
+    const spentToday = (spentTodayTransactions._sum.amount ?? ZERO())
+      .plus(spentTodayCardInstallments._sum.installmentAmount ?? ZERO());
     const financialSummary = buildDashboardBalance(
       totalBalance,
       committed,
       spentToday,
       daysRemainingInMonth,
     );
-    const nextInvoiceEntry = invoiceTotals[0];
+    const nextInvoiceEntry = invoiceTotals.find((entry) => entry.amount.greaterThan(0));
+    const latestMovements = [
+      ...latestTransactions.map((transaction) => ({
+        id: transaction.id,
+        sourceType: 'transaction' as const,
+        type: transaction.type,
+        title: transaction.description,
+        amount: transaction.amount.toFixed(2),
+        date: transaction.occurredAt.toISOString(),
+        accountId: transaction.account?.id ?? null,
+        sourceAccountId: null,
+        destinationAccountId: null,
+      })),
+      ...latestTransfers.map((transfer) => ({
+        id: transfer.id,
+        sourceType: 'account_transfer' as const,
+        type: 'transfer' as const,
+        title: transfer.description ?? 'Transferência',
+        amount: transfer.amount.toFixed(2),
+        date: transfer.occurredAt.toISOString(),
+        accountId: null,
+        sourceAccountId: transfer.sourceAccountId,
+        destinationAccountId: transfer.destinationAccountId,
+      })),
+      ...latestAdjustments.map((adjustment) => ({
+        id: adjustment.id,
+        sourceType: 'account_balance_adjustment' as const,
+        type: 'adjustment' as const,
+        title: adjustment.reason ?? 'Ajuste de saldo',
+        amount: adjustment.difference.toFixed(2),
+        date: adjustment.occurredAt.toISOString(),
+        accountId: adjustment.accountId,
+        sourceAccountId: null,
+        destinationAccountId: null,
+      })),
+    ]
+      .sort((left, right) => right.date.localeCompare(left.date) || right.id.localeCompare(left.id))
+      .slice(0, 5);
 
     return {
       asOf: asOf.toISOString(),
@@ -237,6 +307,7 @@ export class DashboardOverviewService {
         amount: transaction.amount.toFixed(2),
         occurredAt: transaction.occurredAt.toISOString(),
       })),
+      latestMovements,
     };
   }
 }

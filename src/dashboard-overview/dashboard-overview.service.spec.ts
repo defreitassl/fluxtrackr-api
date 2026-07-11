@@ -40,6 +40,9 @@ function harness(options: Record<string, any> = {}) {
     creditCardInvoice: { findMany: async (args: any) => (calls.invoices = args, options.invoices ?? []) },
     fixedOccurrence: { findMany: async (args: any) => (calls.occurrences = args, options.occurrences ?? []) },
     financialEvent: { findMany: async (args: any) => (calls.events = args, options.events ?? []) },
+    installment: { aggregate: async (args: any) => (calls.spentTodayCard = args, { _sum: { installmentAmount: options.spentTodayCard ?? null } }) },
+    accountTransfer: { findMany: async (args: any) => (calls.latestTransfers = args, options.transfers ?? []) },
+    accountBalanceAdjustment: { findMany: async (args: any) => (calls.latestAdjustments = args, options.adjustments ?? []) },
     transaction: {
       aggregate: async (args: any) => (calls.spentToday = args, { _sum: { amount: options.spentToday ?? null } }),
       findMany: async (args: any) => (calls.latestTransactions = args, options.transactions ?? []),
@@ -72,7 +75,7 @@ describe('dashboard balance and daily spending calculations', () => {
     const result = buildDashboardBalance(decimal('0.30'), decimal('0.10'), decimal('0.03'), 2);
     assert.deepEqual(result.balance, { total: '0.30', committed: '0.10', availableToSpend: '0.20' });
     assert.deepEqual(result.dailySpending, {
-      recommended: '0.10', spentToday: '0.03', remainingToday: '0.07',
+      recommended: '0.12', spentToday: '0.03', remainingToday: '0.09',
       daysRemainingInMonth: 2, status: 'within_plan',
     });
   });
@@ -86,9 +89,15 @@ describe('dashboard balance and daily spending calculations', () => {
   });
 
   it('reports over plan when today spending exceeds the recommendation', () => {
-    const result = buildDashboardBalance(decimal(100), decimal(0), decimal(11), 10);
+    const result = buildDashboardBalance(decimal(100), decimal(0), decimal(20), 10);
     assert.equal(result.dailySpending.status, 'over_plan');
-    assert.equal(result.dailySpending.remainingToday, '-1.00');
+    assert.equal(result.dailySpending.remainingToday, '-8.00');
+  });
+
+  it('reports no available balance based on balance before today spending', () => {
+    const result = buildDashboardBalance(decimal(-10), decimal(0), decimal(5), 10);
+    assert.equal(result.dailySpending.status, 'no_available_balance');
+    assert.equal(result.dailySpending.recommended, '0.00');
   });
 
   it('uses UTC month boundaries, includes today, handles last day and February', () => {
@@ -170,7 +179,31 @@ describe('DashboardOverviewService composition', () => {
       gte: new Date('2026-07-15T00:00:00.000Z'), lte: asOf,
     });
     assert.deepEqual(context.calls.spentToday.where.account.is, { userId: 'owner', isActive: true });
+    assert.deepEqual(context.calls.spentToday.where.paidCreditCardInvoice, { is: null });
+    assert.deepEqual(context.calls.spentToday.where.realizedFixedOccurrence, { is: null });
+    assert.deepEqual(context.calls.spentToday.where.confirmedFinancialEvent, { is: null });
     assert.equal(result.dailySpending.spentToday, '41.40');
+    assert.equal(result.dailySpending.status, 'within_plan');
+  });
+
+  it('includes normal card installments due this month and excludes event purchases', async () => {
+    const context = harness({ spentToday: decimal('10.00'), spentTodayCard: decimal('20.00') });
+    const result = await context.service.getOverview('owner', { asOf: asOf.toISOString() });
+    assert.equal(result.dailySpending.spentToday, '30.00');
+    assert.deepEqual(context.calls.spentTodayCard.where.purchase.is.confirmedFinancialEvent, { is: null });
+    assert.deepEqual(context.calls.spentTodayCard.where.purchase.is.purchaseDate, {
+      gte: new Date('2026-07-15T00:00:00.000Z'), lte: asOf,
+    });
+    assert.deepEqual(context.calls.spentTodayCard.where.invoice.is.dueDate, {
+      lte: new Date('2026-07-31T23:59:59.999Z'),
+    });
+  });
+
+  it('does not subtract today spending twice from the daily recommendation', () => {
+    const result = buildDashboardBalance(decimal('90.00'), decimal('0'), decimal('10.00'), 10);
+    assert.equal(result.balance.availableToSpend, '90.00');
+    assert.equal(result.dailySpending.recommended, '10.00');
+    assert.equal(result.dailySpending.remainingToday, '0.00');
     assert.equal(result.dailySpending.status, 'within_plan');
   });
 
@@ -181,6 +214,15 @@ describe('DashboardOverviewService composition', () => {
     assert.equal((await upcoming.service.getOverview('owner', { asOf: asOf.toISOString() })).nextInvoice?.id, 'next');
     assert.equal((await harness().service.getOverview('owner', { asOf: asOf.toISOString() })).nextInvoice, null);
     assert.deepEqual(overdue.calls.invoices.orderBy, [{ dueDate: 'asc' }, { id: 'asc' }]);
+  });
+
+  it('skips zero-total invoices before selecting nextInvoice', async () => {
+    const context = harness({ invoices: [
+      invoice({ id: 'zero', installments: [installment(100, 'canceled')] }),
+      invoice({ id: 'positive', dueDate: new Date('2026-07-21T00:00:00.000Z') }),
+    ] });
+    const result = await context.service.getOverview('owner', { asOf: asOf.toISOString() });
+    assert.equal(result.nextInvoice?.id, 'positive');
   });
 
   it('returns five ordered projected commitments and excludes invoices', async () => {
@@ -209,6 +251,18 @@ describe('DashboardOverviewService composition', () => {
     assert.deepEqual(context.calls.latestTransactions.orderBy, [{ occurredAt: 'desc' }, { id: 'desc' }]);
     assert.equal(context.calls.latestTransactions.take, 5);
     for (const key of ['invoices', 'occurrences', 'events']) assert.equal(context.calls[key].where.userId, 'owner');
+  });
+
+  it('combines and limits latest movements by date and id', async () => {
+    const context = harness({
+      transactions: [transaction(0)],
+      transfers: [{ id: 'transfer', amount: decimal(20), description: null, occurredAt: new Date('2026-07-15T13:00:00.000Z'), sourceAccountId: 'a', destinationAccountId: 'b' }],
+      adjustments: [{ id: 'adjustment', difference: decimal(-5), reason: 'Fix', occurredAt: new Date('2026-07-15T13:30:00.000Z'), accountId: 'a' }],
+    });
+    const result = await context.service.getOverview('owner', { asOf: asOf.toISOString() });
+    assert.deepEqual(result.latestMovements.map((movement) => movement.id), ['adjustment', 'transfer', 'transaction-0']);
+    assert.equal(result.latestMovements[0].type, 'adjustment');
+    assert.equal(result.latestMovements[1].type, 'transfer');
   });
 });
 

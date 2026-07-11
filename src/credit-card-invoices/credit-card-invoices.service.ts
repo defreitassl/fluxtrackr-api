@@ -64,7 +64,7 @@ export class CreditCardInvoicesService {
       }
 
       const account = await tx.account.findFirst({
-        where: { id: dto.accountId, userId },
+        where: { id: dto.accountId, userId, isActive: true },
         select: { id: true },
       });
       if (!account) throw new NotFoundException('Account not found');

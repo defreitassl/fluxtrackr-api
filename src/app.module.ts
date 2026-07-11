@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AccountsModule } from './accounts/accounts.module';
+import { AccountBalancesModule } from './account-balances/account-balances.module';
+import { AccountBalanceAdjustmentsModule } from './account-balance-adjustments/account-balance-adjustments.module';
+import { AccountTransfersModule } from './account-transfers/account-transfers.module';
 import { BalanceForecastModule } from './balance-forecast/balance-forecast.module';
 import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
@@ -23,6 +26,9 @@ import { TransactionsModule } from './transactions/transactions.module';
     HealthModule,
     AuthModule,
     AccountsModule,
+    AccountBalancesModule,
+    AccountBalanceAdjustmentsModule,
+    AccountTransfersModule,
     BalanceForecastModule,
     CreditCardsModule,
     CreditCardPurchasesModule,

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FinancialTimelineService, TimelineItem } from '../financial-timeline/financial-timeline.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { AccountBalanceService } from '../account-balances/account-balance.service';
 import { GetBalanceForecastDto } from './dto/get-balance-forecast.dto';
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -16,7 +16,11 @@ export function buildBalanceForecast(
   items: TimelineItem[],
 ) {
   const movements: Movement[] = items
-    .filter((item) => item.balanceImpact === 'projected')
+    .filter(
+      (item): item is TimelineItem & { type: 'income' | 'expense' } =>
+        item.balanceImpact === 'projected' &&
+        (item.type === 'income' || item.type === 'expense'),
+    )
     .map((item) => ({ date: item.date.slice(0, 10), type: item.type, amount: item.amount }));
   const totalsByDate = new Map<string, { income: Prisma.Decimal; expense: Prisma.Decimal }>();
   for (const movement of movements) {
@@ -92,8 +96,8 @@ export function buildBalanceForecast(
 @Injectable()
 export class BalanceForecastService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly timeline: FinancialTimelineService,
+    private readonly balances: AccountBalanceService,
   ) {}
 
   async getForecast(userId: string, query: GetBalanceForecastDto) {
@@ -103,19 +107,8 @@ export class BalanceForecastService {
     const startDay = Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate());
     const endDate = new Date(startDay + timelineDays * DAY_IN_MS - 1);
 
-    const [accounts, transactions, timeline] = await Promise.all([
-      this.prisma.account.findMany({
-        where: { userId, isActive: true },
-        select: { initialBalance: true },
-      }),
-      this.prisma.transaction.findMany({
-        where: {
-          userId,
-          occurredAt: { lte: asOf },
-          account: { is: { userId, isActive: true } },
-        },
-        select: { type: true, amount: true },
-      }),
+    const [currentBalance, timeline] = await Promise.all([
+      this.balances.getConsolidatedBalance(userId, asOf),
       this.timeline.findMany(userId, {
         startDate: new Date(startDay).toISOString(),
         endDate: endDate.toISOString(),
@@ -123,15 +116,6 @@ export class BalanceForecastService {
       }, { referenceDate: asOf }),
     ]);
 
-    let currentBalance = accounts.reduce(
-      (total, account) => total.plus(account.initialBalance),
-      ZERO(),
-    );
-    for (const transaction of transactions) {
-      currentBalance = transaction.type === 'income'
-        ? currentBalance.plus(transaction.amount)
-        : currentBalance.minus(transaction.amount);
-    }
     return buildBalanceForecast(asOf, horizonDays, currentBalance, timeline.items);
   }
 }

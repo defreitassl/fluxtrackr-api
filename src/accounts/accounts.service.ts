@@ -34,8 +34,8 @@ export class AccountsService {
 
   findMany(userId: string) {
     return this.prisma.account.findMany({
-      where: { userId },
-      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+      where: { userId, isActive: true },
+      orderBy: { name: 'asc' },
     });
   }
 
@@ -67,9 +67,8 @@ export class AccountsService {
 
   async remove(userId: string, id: string) {
     await this.findOne(userId, id);
-    await this.prisma.account.delete({ where: { id } });
-
-    return { deleted: true };
+    await this.prisma.account.update({ where: { id }, data: { isActive: false } });
+    return { archived: true };
   }
 
   private handleUniqueNameError(error: unknown) {

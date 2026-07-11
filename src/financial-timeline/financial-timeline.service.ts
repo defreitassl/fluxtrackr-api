@@ -7,7 +7,7 @@ import {
   ListFinancialTimelineDto,
 } from './dto/list-financial-timeline.dto';
 
-type TimelineType = 'income' | 'expense';
+type TimelineType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BalanceImpact = 'realized' | 'projected' | 'informational' | 'none';
 
 export type TimelineItem = {
@@ -47,22 +47,24 @@ export class FinancialTimelineService {
       !query.sourceType || query.sourceType === sourceType;
     const includesExpense = !query.type || query.type === 'expense';
     const includesIncome = !query.type || query.type === 'income';
+    const includesTransfer = !query.type || query.type === 'transfer';
+    const includesAdjustment = !query.type || query.type === 'adjustment';
     const dateRange = { gte: startDate, lte: endDate };
 
     const includeFixedExpense = includesExpense && includes(FinancialTimelineSourceTypeDto.fixed_expense);
     const includeFixedIncome = includesIncome && includes(FinancialTimelineSourceTypeDto.fixed_income);
-    const [transactions, events, invoices, fixedOccurrences] =
+    const [transactions, events, invoices, fixedOccurrences, transfers, adjustments] =
       await Promise.all([
-        includes(FinancialTimelineSourceTypeDto.transaction)
+        (includesExpense || includesIncome) && includes(FinancialTimelineSourceTypeDto.transaction)
           ? this.prisma.transaction.findMany({
-              where: { userId, type: query.type, occurredAt: dateRange },
+              where: { userId, type: query.type as 'income' | 'expense' | undefined, occurredAt: dateRange },
             })
           : Promise.resolve([]),
-        includes(FinancialTimelineSourceTypeDto.financial_event)
+        (includesExpense || includesIncome) && includes(FinancialTimelineSourceTypeDto.financial_event)
           ? this.prisma.financialEvent.findMany({
               where: {
                 userId,
-                type: query.type,
+                type: query.type as 'income' | 'expense' | undefined,
                 date: dateRange,
                 status: {
                   in: query.includeCanceled
@@ -104,7 +106,7 @@ export class FinancialTimelineService {
           ? this.prisma.fixedOccurrence.findMany({
               where: {
                 userId,
-                type: query.type,
+                type: query.type as 'income' | 'expense' | undefined,
                 occurrenceDate: dateRange,
                 status: { in: query.includeCanceled ? ['pending', 'canceled'] : ['pending'] },
                 OR: [
@@ -114,6 +116,16 @@ export class FinancialTimelineService {
                   ...(query.includeCanceled && includeFixedIncome ? [{ type: 'income' as const, status: 'canceled' as const }] : []),
                 ],
               },
+            })
+          : Promise.resolve([]),
+        includesTransfer && includes(FinancialTimelineSourceTypeDto.account_transfer)
+          ? this.prisma.accountTransfer.findMany({
+              where: { userId, occurredAt: dateRange },
+            })
+          : Promise.resolve([]),
+        includesAdjustment && includes(FinancialTimelineSourceTypeDto.account_balance_adjustment)
+          ? this.prisma.accountBalanceAdjustment.findMany({
+              where: { userId, occurredAt: dateRange },
             })
           : Promise.resolve([]),
       ]);
@@ -196,6 +208,46 @@ export class FinancialTimelineService {
           expectedDate: occurrence.occurrenceDate.toISOString(),
         },
       })),
+      ...transfers.map((transfer) => ({
+        id: transfer.id,
+        sourceType: FinancialTimelineSourceTypeDto.account_transfer,
+        sourceId: transfer.id,
+        type: 'transfer' as const,
+        title: transfer.description ?? 'Transferência',
+        amount: transfer.amount.toFixed(2),
+        date: transfer.occurredAt.toISOString(),
+        status: 'realized',
+        balanceImpact: 'informational' as const,
+        accountId: null,
+        creditCardId: null,
+        categoryId: null,
+        metadata: {
+          sourceAccountId: transfer.sourceAccountId,
+          destinationAccountId: transfer.destinationAccountId,
+          description: transfer.description,
+        },
+      })),
+      ...adjustments.map((adjustment) => ({
+        id: adjustment.id,
+        sourceType: FinancialTimelineSourceTypeDto.account_balance_adjustment,
+        sourceId: adjustment.id,
+        type: 'adjustment' as const,
+        title: adjustment.reason ?? 'Ajuste de saldo',
+        amount: adjustment.difference.toFixed(2),
+        date: adjustment.occurredAt.toISOString(),
+        status: 'realized',
+        balanceImpact: 'informational' as const,
+        accountId: adjustment.accountId,
+        creditCardId: null,
+        categoryId: null,
+        metadata: {
+          accountId: adjustment.accountId,
+          previousBalance: adjustment.previousBalance.toFixed(2),
+          newBalance: adjustment.newBalance.toFixed(2),
+          difference: adjustment.difference.toFixed(2),
+          reason: adjustment.reason,
+        },
+      })),
     ];
 
     items.sort(
@@ -212,7 +264,10 @@ export class FinancialTimelineService {
       projectedExpense: new Prisma.Decimal(0),
     };
     for (const item of items) {
-      if (item.balanceImpact !== 'realized' && item.balanceImpact !== 'projected') continue;
+      if (
+        (item.type !== 'income' && item.type !== 'expense') ||
+        (item.balanceImpact !== 'realized' && item.balanceImpact !== 'projected')
+      ) continue;
       const key = `${item.balanceImpact}${item.type === 'income' ? 'Income' : 'Expense'}` as keyof typeof summary;
       summary[key] = summary[key].plus(item.amount);
     }

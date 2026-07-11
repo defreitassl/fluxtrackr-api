@@ -56,6 +56,8 @@ npm run build
 - `POST /auth/login`
 - `GET/POST/PATCH/DELETE /transactions`
 - `GET/POST/PATCH/DELETE /accounts`
+- `POST/GET /account-transfers` e `GET /account-transfers/:id`
+- `POST/GET /accounts/:id/balance-adjustments` e `GET /accounts/:id/balance`
 - `GET/POST/PATCH/DELETE /credit-cards`
 - `GET/POST /credit-card-purchases` e `GET /credit-card-purchases/:id`
 - `GET /credit-card-invoices`, `GET /credit-card-invoices/:id` e `POST /credit-card-invoices/:id/pay`
@@ -160,6 +162,17 @@ saldo total
 ```
 
 O saldo total e o `currentBalance` calculado pelo `BalanceForecastService`. O comprometido soma faturas `open`, `closed` e `overdue`, ocorrencias fixas de despesa `pending` com template ativo e eventos de despesa `confirmed`, vencidos ou com data ate o fim do mes UTC. Faturas usam o total compartilhado de parcelas nao canceladas. Assinaturas ainda nao entram nesse valor porque seu modulo funcional nao foi implementado.
+
+`spentToday` considera apenas transacoes comuns e parcelas de compras normais no cartao feitas no dia cuja fatura vence ate o fim do mes. Pagamentos de fatura, realizacoes e compras originadas de evento sao excluidos. A recomendacao parte do disponivel antes do gasto de hoje, evitando desconto duplo. Faturas de total zero nao aparecem como proxima fatura.
+
+## Transferencias e ajustes de saldo
+
+```text
+Transferencia: nao e receita; nao e despesa; altera somente a distribuicao entre contas.
+Ajuste: nao e receita; nao e despesa; corrige o saldo real e mantem historico.
+```
+
+O saldo usa `initialBalance + receitas - despesas + recebidas - enviadas + ajustes`, com `Prisma.Decimal` e corte por `asOf`. Transferencias e ajustes sao atomicos, nao criam `Transaction`, aparecem na Timeline como informativos e entram em `latestMovements`; `latestTransactions` permanece temporariamente como campo legado.
 
 Validacao completa:
 
