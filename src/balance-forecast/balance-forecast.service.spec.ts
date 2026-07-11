@@ -22,8 +22,8 @@ function harness(options: { accounts?: any[]; transactions?: any[]; items?: any[
     transaction: { findMany: async (args: any) => (calls.transactions = args, options.transactions ?? []) },
   };
   const timeline = {
-    findMany: async (userId: string, query: any) => {
-      calls.timeline = { userId, query };
+    findMany: async (userId: string, query: any, optionsArg: any) => {
+      calls.timeline = { userId, query, options: optionsArg };
       return { items: options.items ?? [] };
     },
   };
@@ -58,11 +58,28 @@ describe('BalanceForecastService queries and current balance', () => {
   it('queries through the larger of the requested horizon and 30 days', async () => {
     const short = harness();
     await short.service.getForecast('owner', { asOf: asOf.toISOString(), horizonDays: 1 });
+    assert.equal(short.calls.timeline.query.startDate, '2026-08-01T00:00:00.000Z');
     assert.equal(short.calls.timeline.query.endDate, '2026-08-30T23:59:59.999Z');
+    assert.equal(short.calls.timeline.query.startDate, '2026-08-01T00:00:00.000Z');
     const long = harness();
     const result = await long.service.getForecast('owner', { asOf: asOf.toISOString(), horizonDays: 366 });
     assert.equal(result.points.length, 366);
     assert.equal(long.calls.timeline.query.endDate, '2027-08-01T23:59:59.999Z');
+  });
+
+  it('keeps current balance at exact asOf while including same-day midnight commitments', async () => {
+    const context = harness({
+      transactions: [{ type: 'income', amount: decimal('100.00') }],
+      items: [item({ date: '2026-08-01T00:00:00.000Z', amount: '25.00' })],
+    });
+    const result = await context.service.getForecast('owner', { asOf: asOf.toISOString(), horizonDays: 1 });
+    assert.equal(context.calls.transactions.where.occurredAt.lte.toISOString(), asOf.toISOString());
+    assert.equal(context.calls.timeline.query.startDate, '2026-08-01T00:00:00.000Z');
+    assert.equal(context.calls.timeline.options.referenceDate.toISOString(), asOf.toISOString());
+    assert.equal(context.calls.timeline.query.endDate, '2026-08-30T23:59:59.999Z');
+    assert.equal(context.calls.timeline.query.includeCanceled, false);
+    assert.equal(result.currentBalance, '100.00');
+    assert.equal(result.points[0].expense, '25.00');
   });
 });
 
@@ -77,6 +94,15 @@ describe('balance forecast calculation', () => {
     assert.equal(result.projectedIncome, '25.00');
     assert.equal(result.projectedExpense, '0.00');
     assert.equal(result.projectedFinalBalance, '125.00');
+  });
+
+  it('projects both planned and confirmed timeline commitments', () => {
+    const result = buildBalanceForecast(asOf, 1, decimal(100), [
+      item({ id: 'planned', status: 'planned', amount: '10.00' }),
+      item({ id: 'confirmed', status: 'confirmed', amount: '20.00' }),
+    ]);
+    assert.equal(result.projectedExpense, '30.00');
+    assert.equal(result.projectedFinalBalance, '70.00');
   });
 
   it('groups multiple movements by UTC day and emits empty days', () => {

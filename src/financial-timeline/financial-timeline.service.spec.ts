@@ -84,20 +84,65 @@ describe('FinancialTimelineService range and queries', () => {
     assert.deepEqual(Object.keys(context.calls), ['financialEvent']);
     const where = context.calls.financialEvent[0].where;
     assert.equal(where.type, 'expense');
-    assert.deepEqual(where.status.in, ['planned', 'postponed', 'canceled']);
+    assert.deepEqual(where.status.in, ['planned', 'confirmed', 'postponed', 'canceled']);
   });
 
   it('excludes realized or converted events in the Prisma query', async () => {
     const context = harness();
     await context.service.findMany('user', query());
     const where = context.calls.financialEvent[0].where;
-    assert.deepEqual(where.status.in, ['planned', 'postponed']);
+    assert.deepEqual(where.status.in, ['planned', 'confirmed', 'postponed']);
     assert.equal(where.confirmedTransactionId, null);
     assert.equal(where.confirmedCreditCardPurchaseId, null);
   });
 });
 
 describe('FinancialTimelineService aggregation', () => {
+  it('includes confirmed events as projected and excludes realized linked events', async () => {
+    const context = harness({
+      financialEvent: [{
+        id: 'confirmed', type: 'expense', name: 'Confirmed', expectedAmount: decimal(30),
+        date: new Date('2099-02-10T00:00:00.000Z'), status: 'confirmed', accountId: 'account',
+        creditCardId: null, categoryId: null, recurrence: 'once', installmentCount: 1,
+      }],
+    });
+    const result = await context.service.findMany('user', query());
+    assert.equal(result.items[0].status, 'confirmed');
+    assert.equal(result.items[0].balanceImpact, 'projected');
+    assert.equal(result.summary.projectedExpense, '30.00');
+    const where = context.calls.financialEvent[0].where;
+    assert.equal(where.confirmedTransactionId, null);
+    assert.equal(where.confirmedCreditCardPurchaseId, null);
+  });
+
+  it('uses referenceDate for historical and future fixed occurrences', async () => {
+    const context = harness({
+      fixedExpense: [{ id: 'expense', name: 'Rent', amount: decimal(900), dueDay: 10 }],
+      fixedIncome: [{ id: 'income', name: 'Salary', amount: decimal(5000), receiveDay: 5 }],
+    });
+    const historical = await context.service.findMany('user', {
+      startDate: '2020-01-01T00:00:00.000Z', endDate: '2020-01-31T23:59:59.999Z', includeCanceled: false,
+    }, { referenceDate: new Date('2020-01-03T15:00:00.000Z') });
+    assert.deepEqual(historical.items.map((entry) => entry.date), [
+      '2020-01-05T00:00:00.000Z', '2020-01-10T00:00:00.000Z',
+    ]);
+    const future = await context.service.findMany('user', {
+      startDate: '2100-01-01T00:00:00.000Z', endDate: '2100-01-31T23:59:59.999Z', includeCanceled: false,
+    }, { referenceDate: new Date('2099-12-15T12:00:00.000Z') });
+    assert.equal(future.items.filter((entry) => entry.sourceType.startsWith('fixed_')).length, 2);
+  });
+
+  it('keeps public behavior based on the current server date when referenceDate is absent', async () => {
+    const today = new Date();
+    const day = Math.min(today.getUTCDate() + 1, new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)).getUTCDate());
+    const context = harness({ fixedExpense: [{ id: 'expense', name: 'Due', amount: decimal(1), dueDay: day }] });
+    const result = await context.service.findMany('user', {
+      startDate: new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)).toISOString(),
+      endDate: new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString(),
+      includeCanceled: false,
+    });
+    assert.ok(result.items.some((entry) => entry.sourceType === 'fixed_expense'));
+  });
   it('orders chronologically and breaks ties by sourceType and id', async () => {
     const context = harness({
       transaction: [

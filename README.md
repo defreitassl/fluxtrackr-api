@@ -60,7 +60,7 @@ npm run build
 - `GET/POST /credit-card-purchases` e `GET /credit-card-purchases/:id`
 - `GET /credit-card-invoices`, `GET /credit-card-invoices/:id` e `POST /credit-card-invoices/:id/pay`
 - `GET/POST/PATCH/DELETE /financial-events`
-- `POST /financial-events/:id/postpone` e `POST /financial-events/:id/confirm`
+- `POST /financial-events/:id/postpone`, `POST /financial-events/:id/confirm` e `POST /financial-events/:id/realize`
 - `GET /financial-timeline`
 - `GET /balance-forecast`
 - `GET/POST/PATCH/DELETE /categories`
@@ -102,7 +102,7 @@ O pagamento e integral, soma as parcelas nao canceladas e cria uma `Transaction`
 
 ## Eventos financeiros
 
-Eventos representam receitas e despesas futuras. Ao confirmar, um evento em conta cria uma `Transaction`; um evento de despesa no cartao cria uma `CreditCardPurchase` com parcelas e faturas pelo mesmo fluxo das compras diretas. Eventos recorrentes confirmados geram a proxima ocorrencia planejada.
+Eventos representam receitas e despesas futuras. Confirmar apenas muda o evento para `confirmed`, registrando o compromisso sem criar movimentacao. Realizar um evento confirmado cria atomicamente uma `Transaction` em conta ou reutiliza o dominio de compras para cartão, muda o status para `realized` e somente então cria a próxima ocorrência recorrente.
 
 ```bash
 curl -X POST http://localhost:3001/financial-events \
@@ -111,6 +111,9 @@ curl -X POST http://localhost:3001/financial-events \
   -d '{"type":"expense","name":"Seguro do carro","expectedAmount":1200,"date":"2026-08-15T12:00:00.000Z","categoryId":"CATEGORY_ID","accountId":"ACCOUNT_ID","paymentMethod":"pix","recurrence":"yearly","installmentCount":1}'
 
 curl -X POST http://localhost:3001/financial-events/FINANCIAL_EVENT_ID/confirm \
+  -H 'Authorization: Bearer TOKEN'
+
+curl -X POST http://localhost:3001/financial-events/FINANCIAL_EVENT_ID/realize \
   -H 'Authorization: Bearer TOKEN'
 ```
 
@@ -126,11 +129,11 @@ curl 'http://localhost:3001/financial-timeline?startDate=2026-08-01T00%3A00%3A00
   -H 'Authorization: Bearer TOKEN'
 ```
 
-As ocorrencias de gastos e ganhos fixos sao calculadas em memoria e nao sao persistidas. Faturas aparecem uma vez por mes, com o total das parcelas nao canceladas.
+Eventos `planned`, `confirmed` e `postponed` aparecem como projetados. As ocorrencias de gastos e ganhos fixos sao calculadas em memoria e nao sao persistidas. Faturas aparecem uma vez por mes, com o total das parcelas nao canceladas.
 
 ## Previsao consolidada de saldo
 
-A previsao soma os saldos iniciais e transacoes realizadas das contas ativas e aplica somente impactos projetados retornados diretamente pela Timeline. A consulta e protegida por JWT, somente de leitura e nao persiste saldo ou previsao.
+A previsao soma os saldos iniciais e transacoes realizadas das contas ativas e aplica somente impactos projetados retornados diretamente pela Timeline, incluindo eventos planejados e confirmados. A consulta da Timeline começa à meia-noite UTC do dia de `asOf`, enquanto o saldo atual preserva o horário exato. A consulta e protegida por JWT, somente de leitura e nao persiste saldo ou previsao.
 
 ```bash
 curl 'http://localhost:3001/balance-forecast?horizonDays=30' \

@@ -92,7 +92,7 @@ export class FinancialEventsService {
   update(userId: string, id: string, dto: UpdateFinancialEventDto) {
     return this.prisma.$transaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
-      this.ensureMutable(event.status);
+      this.ensureEditable(event.status);
       const data: EventData = {
         type: dto.type ?? event.type,
         name: dto.name ?? event.name,
@@ -121,12 +121,11 @@ export class FinancialEventsService {
   remove(userId: string, id: string) {
     return this.prisma.$transaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
-      if (event.status === 'realized') {
+      if (event.status === 'realized' || event.status === 'canceled') {
         throw new BadRequestException(
-          'Realized financial event cannot be canceled',
+          'Canceled or realized financial event cannot be changed',
         );
       }
-      if (event.status === 'canceled') return event;
       return tx.financialEvent.update({
         where: { id },
         data: { status: 'canceled' },
@@ -137,7 +136,11 @@ export class FinancialEventsService {
   postpone(userId: string, id: string, dto: PostponeFinancialEventDto) {
     return this.prisma.$transaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
-      this.ensureMutable(event.status);
+      if (!['planned', 'postponed', 'confirmed'].includes(event.status)) {
+        throw new BadRequestException(
+          'Canceled or realized financial event cannot be changed',
+        );
+      }
       return tx.financialEvent.update({
         where: { id },
         data: { date: new Date(dto.date), status: 'postponed' },
@@ -148,15 +151,50 @@ export class FinancialEventsService {
   confirm(userId: string, id: string) {
     return this.runSerializableTransaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
+      if (event.status === 'confirmed' || event.status === 'realized') {
+        throw new ConflictException('Financial event already confirmed');
+      }
+      if (event.status === 'canceled') {
+        throw new BadRequestException('Canceled financial event cannot be confirmed');
+      }
+      if (!['planned', 'postponed'].includes(event.status)) {
+        throw new BadRequestException('Financial event cannot be confirmed');
+      }
+
+      const data: EventData = {
+        type: event.type,
+        name: event.name,
+        expectedAmount: event.expectedAmount,
+        date: event.date,
+        categoryId: event.categoryId,
+        accountId: event.accountId,
+        creditCardId: event.creditCardId,
+        paymentMethod: event.paymentMethod,
+        recurrence: event.recurrence as SupportedRecurrence,
+        installmentCount: event.installmentCount,
+        notes: event.notes,
+      };
+      await this.validateEventData(tx, userId, data);
+
+      return tx.financialEvent.update({
+        where: { id },
+        data: { status: 'confirmed' },
+      });
+    });
+  }
+
+  realize(userId: string, id: string) {
+    return this.runSerializableTransaction(async (tx) => {
+      const event = await this.findOwnedEvent(tx, userId, id);
       if (
         event.status === 'realized' ||
         event.confirmedTransactionId ||
         event.confirmedCreditCardPurchaseId
       ) {
-        throw new ConflictException('Financial event already confirmed');
+        throw new ConflictException('Financial event already realized');
       }
-      if (event.status === 'canceled') {
-        throw new BadRequestException('Canceled financial event cannot be confirmed');
+      if (event.status !== 'confirmed') {
+        throw new BadRequestException('Only confirmed financial events can be realized');
       }
 
       const data: EventData = {
@@ -179,7 +217,7 @@ export class FinancialEventsService {
       if (event.accountId) {
         if (!event.paymentMethod) {
           throw new BadRequestException(
-            'Account financial event requires paymentMethod to be confirmed',
+            'Account financial event requires paymentMethod to be realized',
           );
         }
         transaction = await tx.transaction.create({
@@ -334,10 +372,10 @@ export class FinancialEventsService {
     return event;
   }
 
-  private ensureMutable(status: string) {
-    if (status === 'canceled' || status === 'realized') {
+  private ensureEditable(status: string) {
+    if (!['planned', 'postponed'].includes(status)) {
       throw new BadRequestException(
-        'Canceled or realized financial event cannot be changed',
+        'Only planned or postponed financial events can be edited',
       );
     }
   }
@@ -356,11 +394,11 @@ export class FinancialEventsService {
           error.code === 'P2034'
         ) {
           if (attempt < 3) continue;
-          throw new ConflictException('Financial event confirmation conflict');
+          throw new ConflictException('Financial event state transition conflict');
         }
         throw error;
       }
     }
-    throw new ConflictException('Financial event confirmation conflict');
+    throw new ConflictException('Financial event state transition conflict');
   }
 }

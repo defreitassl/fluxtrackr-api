@@ -39,12 +39,15 @@ function harness(options: {
   cardValid?: boolean;
   failRealizedUpdate?: boolean;
   failPurchase?: boolean;
+  serializationFailures?: number;
 } = {}) {
   const state = {
     events: (options.events ?? [baseEvent()]).map(cloneEvent),
     transactions: [] as any[],
     purchaseCalls: [] as any[],
     lastListWhere: null as any,
+    transactionOptions: [] as any[],
+    transactionAttempts: 0,
   };
   const financialEvent = {
     findFirst: async ({ where }: any) =>
@@ -91,7 +94,14 @@ function harness(options: {
   };
   const prisma = {
     financialEvent,
-    $transaction: async (operation: any) => {
+    $transaction: async (operation: any, transactionOptions?: any) => {
+      state.transactionOptions.push(transactionOptions);
+      state.transactionAttempts += 1;
+      if (state.transactionAttempts <= (options.serializationFailures ?? 0)) {
+        throw new Prisma.PrismaClientKnownRequestError('write conflict', {
+          code: 'P2034', clientVersion: '7.8.0',
+        });
+      }
       const eventsSnapshot = state.events.map(cloneEvent);
       const transactionCount = state.transactions.length;
       try {
@@ -220,10 +230,20 @@ describe('FinancialEventsService CRUD and validation', () => {
   });
 });
 
-describe('FinancialEventsService confirmation', () => {
-  it('creates a Transaction and realizes an account event', async () => {
+describe('FinancialEventsService confirmation and realization', () => {
+  it('confirms without creating movement or recurrence', async () => {
     const context = harness();
     const result = await context.service.confirm('user', 'event-1');
+    assert.equal(result.status, 'confirmed');
+    assert.equal(context.state.transactions.length, 0);
+    assert.equal(context.state.purchaseCalls.length, 0);
+    assert.equal(context.state.events.length, 1);
+    assert.equal(context.state.transactionOptions[0].isolationLevel, 'Serializable');
+  });
+
+  it('creates a Transaction and realizes a confirmed account event', async () => {
+    const context = harness({ events: [baseEvent({ status: 'confirmed' })] });
+    const result = await context.service.realize('user', 'event-1');
     assert.equal(result.event.status, 'realized');
     assert.equal(result.event.confirmedTransactionId, 'transaction-1');
     assert.equal(result.transaction.type, 'expense');
@@ -241,21 +261,26 @@ describe('FinancialEventsService confirmation', () => {
       paymentMethod: null,
       installmentCount: 12,
     });
-    const context = harness({ events: [event] });
-    const result = await context.service.confirm('user', 'event-1');
+    const context = harness({ events: [baseEvent({ ...event, status: 'confirmed' })] });
+    const result = await context.service.realize('user', 'event-1');
     assert.equal(result.event.confirmedCreditCardPurchaseId, 'purchase');
     assert.equal(result.creditCardPurchase.installmentCount, 12);
     assert.equal(context.state.purchaseCalls[0].input.installmentCount, 12);
     assert.equal(context.state.transactions.length, 0);
   });
 
-  it('returns conflict for duplicate confirmation', async () => {
+  it('rejects realization without confirmation and duplicate transitions', async () => {
+    const planned = harness();
+    await assert.rejects(() => planned.service.realize('user', 'event-1'), BadRequestException);
     const context = harness();
     await context.service.confirm('user', 'event-1');
     await assert.rejects(
       () => context.service.confirm('user', 'event-1'),
       ConflictException,
     );
+    const realized = await context.service.realize('user', 'event-1');
+    assert.equal(realized.event.status, 'realized');
+    await assert.rejects(() => context.service.realize('user', 'event-1'), ConflictException);
     assert.equal(context.state.transactions.length, 1);
   });
 
@@ -275,7 +300,9 @@ describe('FinancialEventsService confirmation', () => {
       ['yearly', '2027-08-15T12:00:00.000Z'],
     ] as const) {
       const context = harness({ events: [baseEvent({ recurrence })] });
-      const result = await context.service.confirm('user', 'event-1');
+      await context.service.confirm('user', 'event-1');
+      assert.equal(context.state.events.length, 1);
+      const result = await context.service.realize('user', 'event-1');
       assert.ok(result.nextEvent);
       assert.equal(result.nextEvent.status, 'planned');
       assert.equal(result.nextEvent.date.toISOString(), expected);
@@ -285,20 +312,49 @@ describe('FinancialEventsService confirmation', () => {
   it('rolls back when transaction finalization or purchase creation fails', async () => {
     const accountContext = harness({ failRealizedUpdate: true });
     await assert.rejects(
-      () => accountContext.service.confirm('user', 'event-1'),
+      async () => {
+        await accountContext.service.confirm('user', 'event-1');
+        await accountContext.service.realize('user', 'event-1');
+      },
       /realized update failed/,
     );
     assert.equal(accountContext.state.transactions.length, 0);
-    assert.equal(accountContext.state.events[0].status, 'planned');
+    assert.equal(accountContext.state.events[0].status, 'confirmed');
 
     const cardContext = harness({
       failPurchase: true,
-      events: [baseEvent({ accountId: null, creditCardId: 'card', paymentMethod: null })],
+      events: [baseEvent({ status: 'confirmed', accountId: null, creditCardId: 'card', paymentMethod: null })],
     });
     await assert.rejects(
-      () => cardContext.service.confirm('user', 'event-1'),
+      () => cardContext.service.realize('user', 'event-1'),
       /purchase failed/,
     );
-    assert.equal(cardContext.state.events[0].status, 'planned');
+    assert.equal(cardContext.state.events[0].status, 'confirmed');
+  });
+
+  it('allows confirmed events to be postponed or canceled but not edited', async () => {
+    const postponed = harness({ events: [baseEvent({ status: 'confirmed' })] });
+    await assert.rejects(
+      () => postponed.service.update('user', 'event-1', { name: 'Changed' }),
+      BadRequestException,
+    );
+    const event = await postponed.service.postpone('user', 'event-1', {
+      date: '2026-09-15T12:00:00.000Z',
+    });
+    assert.equal(event.status, 'postponed');
+
+    const canceled = harness({ events: [baseEvent({ status: 'confirmed' })] });
+    assert.equal((await canceled.service.remove('user', 'event-1')).status, 'canceled');
+    await assert.rejects(() => canceled.service.remove('user', 'event-1'), BadRequestException);
+  });
+
+  it('retries serializable concurrency conflicts without allowing duplicate realization', async () => {
+    const retry = harness({ events: [baseEvent({ status: 'confirmed' })], serializationFailures: 2 });
+    const result = await retry.service.realize('user', 'event-1');
+    assert.equal(result.event.status, 'realized');
+    assert.equal(retry.state.transactionAttempts, 3);
+
+    await assert.rejects(() => retry.service.realize('user', 'event-1'), ConflictException);
+    assert.equal(retry.state.transactions.length, 1);
   });
 });

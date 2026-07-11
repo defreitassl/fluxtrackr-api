@@ -66,4 +66,9 @@ export class FinancialEventsController {
   confirm(@Req() req: AuthenticatedRequest, @Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.confirm(req.user.id, id);
   }
+
+  @Post(':id/realize')
+  realize(@Req() req: AuthenticatedRequest, @Param('id', new ParseUUIDPipe()) id: string) {
+    return this.service.realize(req.user.id, id);
+  }
 }

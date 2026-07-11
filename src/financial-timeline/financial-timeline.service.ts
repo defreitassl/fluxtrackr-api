@@ -26,6 +26,10 @@ export type TimelineItem = {
   metadata: Record<string, unknown>;
 };
 
+export type FinancialTimelineOptions = {
+  referenceDate?: Date;
+};
+
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
@@ -35,6 +39,7 @@ export class FinancialTimelineService {
   async findMany(
     userId: string,
     query: ListFinancialTimelineDto,
+    options?: FinancialTimelineOptions,
   ) {
     const startDate = new Date(query.startDate);
     const endDate = new Date(query.endDate);
@@ -61,8 +66,8 @@ export class FinancialTimelineService {
                 date: dateRange,
                 status: {
                   in: query.includeCanceled
-                    ? ['planned', 'postponed', 'canceled']
-                    : ['planned', 'postponed'],
+                    ? ['planned', 'confirmed', 'postponed', 'canceled']
+                    : ['planned', 'confirmed', 'postponed'],
                 },
                 confirmedTransactionId: null,
                 confirmedCreditCardPurchaseId: null,
@@ -171,6 +176,7 @@ export class FinancialTimelineService {
         'dueDay',
         startDate,
         endDate,
+        options?.referenceDate,
       ),
       ...this.fixedItems(
         fixedIncomes,
@@ -179,6 +185,7 @@ export class FinancialTimelineService {
         'receiveDay',
         startDate,
         endDate,
+        options?.referenceDate,
       ),
     ];
 
@@ -235,10 +242,15 @@ export class FinancialTimelineService {
     dayField: 'dueDay' | 'receiveDay',
     startDate: Date,
     endDate: Date,
+    referenceDate?: Date,
   ): TimelineItem[] {
-    const today = new Date();
-    const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-    const effectiveStart = startDate > todayUtc ? startDate : todayUtc;
+    const reference = referenceDate ?? new Date();
+    const referenceDayUtc = new Date(Date.UTC(
+      reference.getUTCFullYear(),
+      reference.getUTCMonth(),
+      reference.getUTCDate(),
+    ));
+    const effectiveStart = startDate > referenceDayUtc ? startDate : referenceDayUtc;
     const items: TimelineItem[] = [];
 
     for (const record of records) {

@@ -117,10 +117,10 @@ export class BalanceForecastService {
         select: { type: true, amount: true },
       }),
       this.timeline.findMany(userId, {
-        startDate: asOf.toISOString(),
+        startDate: new Date(startDay).toISOString(),
         endDate: endDate.toISOString(),
         includeCanceled: false,
-      }),
+      }, { referenceDate: asOf }),
     ]);
 
     let currentBalance = accounts.reduce(
