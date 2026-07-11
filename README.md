@@ -63,6 +63,7 @@ npm run build
 - `POST /financial-events/:id/postpone`, `POST /financial-events/:id/confirm` e `POST /financial-events/:id/realize`
 - `GET /financial-timeline`
 - `GET /balance-forecast`
+- `GET /dashboard-overview`
 - `GET/POST/PATCH/DELETE /categories`
 - `GET/POST/PATCH/DELETE /fixed-expenses`
 - `GET/POST/PATCH/DELETE /fixed-incomes`
@@ -147,6 +148,18 @@ curl 'http://localhost:3001/balance-forecast?asOf=2026-08-01T12%3A00%3A00.000Z&h
 ```
 
 `asOf` usa a data/hora atual por padrao. `horizonDays` usa 30 e aceita de 1 a 366. Valores monetarios sao strings com duas casas decimais e os pontos diarios usam datas UTC.
+
+## Dashboard financeiro
+
+`GET /dashboard-overview` consolida, em uma consulta protegida por JWT, saldo atual, valor comprometido, disponivel para gastar, meta diaria, previsao de 30 dias, proxima fatura, cinco proximos compromissos e cinco transacoes recentes. `asOf` e opcional e todas as fronteiras usam UTC.
+
+```text
+saldo total
+- valor comprometido
+= disponivel para gastar
+```
+
+O saldo total e o `currentBalance` calculado pelo `BalanceForecastService`. O comprometido soma faturas `open`, `closed` e `overdue`, ocorrencias fixas de despesa `pending` com template ativo e eventos de despesa `confirmed`, vencidos ou com data ate o fim do mes UTC. Faturas usam o total compartilhado de parcelas nao canceladas. Assinaturas ainda nao entram nesse valor porque seu modulo funcional nao foi implementado.
 
 Validacao completa:
 

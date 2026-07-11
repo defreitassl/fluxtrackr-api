@@ -8,5 +8,6 @@ import { BalanceForecastService } from './balance-forecast.service';
   imports: [PrismaModule, FinancialTimelineModule],
   controllers: [BalanceForecastController],
   providers: [BalanceForecastService],
+  exports: [BalanceForecastService],
 })
 export class BalanceForecastModule {}

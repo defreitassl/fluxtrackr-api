@@ -7,6 +7,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
 import { CreditCardPurchasesModule } from './credit-card-purchases/credit-card-purchases.module';
 import { CreditCardInvoicesModule } from './credit-card-invoices/credit-card-invoices.module';
+import { DashboardOverviewModule } from './dashboard-overview/dashboard-overview.module';
 import { FixedExpensesModule } from './fixed-expenses/fixed-expenses.module';
 import { FinancialEventsModule } from './financial-events/financial-events.module';
 import { FinancialTimelineModule } from './financial-timeline/financial-timeline.module';
@@ -26,6 +27,7 @@ import { TransactionsModule } from './transactions/transactions.module';
     CreditCardsModule,
     CreditCardPurchasesModule,
     CreditCardInvoicesModule,
+    DashboardOverviewModule,
     FinancialEventsModule,
     FinancialTimelineModule,
     TransactionsModule,
