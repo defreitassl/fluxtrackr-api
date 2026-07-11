@@ -10,7 +10,7 @@ import {
 type TimelineType = 'income' | 'expense';
 type BalanceImpact = 'realized' | 'projected' | 'informational' | 'none';
 
-type TimelineItem = {
+export type TimelineItem = {
   id: string;
   sourceType: FinancialTimelineSourceTypeDto;
   sourceId: string;

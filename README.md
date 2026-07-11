@@ -62,6 +62,7 @@ npm run build
 - `GET/POST/PATCH/DELETE /financial-events`
 - `POST /financial-events/:id/postpone` e `POST /financial-events/:id/confirm`
 - `GET /financial-timeline`
+- `GET /balance-forecast`
 - `GET/POST/PATCH/DELETE /categories`
 - `GET/POST/PATCH/DELETE /fixed-expenses`
 - `GET/POST/PATCH/DELETE /fixed-incomes`
@@ -126,6 +127,20 @@ curl 'http://localhost:3001/financial-timeline?startDate=2026-08-01T00%3A00%3A00
 ```
 
 As ocorrencias de gastos e ganhos fixos sao calculadas em memoria e nao sao persistidas. Faturas aparecem uma vez por mes, com o total das parcelas nao canceladas.
+
+## Previsao consolidada de saldo
+
+A previsao soma os saldos iniciais e transacoes realizadas das contas ativas e aplica somente impactos projetados retornados diretamente pela Timeline. A consulta e protegida por JWT, somente de leitura e nao persiste saldo ou previsao.
+
+```bash
+curl 'http://localhost:3001/balance-forecast?horizonDays=30' \
+  -H 'Authorization: Bearer TOKEN'
+
+curl 'http://localhost:3001/balance-forecast?asOf=2026-08-01T12%3A00%3A00.000Z&horizonDays=366' \
+  -H 'Authorization: Bearer TOKEN'
+```
+
+`asOf` usa a data/hora atual por padrao. `horizonDays` usa 30 e aceita de 1 a 366. Valores monetarios sao strings com duas casas decimais e os pontos diarios usam datas UTC.
 
 Validacao completa:
 

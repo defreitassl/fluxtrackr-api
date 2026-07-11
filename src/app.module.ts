@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AccountsModule } from './accounts/accounts.module';
+import { BalanceForecastModule } from './balance-forecast/balance-forecast.module';
 import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
@@ -18,6 +19,7 @@ import { TransactionsModule } from './transactions/transactions.module';
     HealthModule,
     AuthModule,
     AccountsModule,
+    BalanceForecastModule,
     CreditCardsModule,
     CreditCardPurchasesModule,
     CreditCardInvoicesModule,
