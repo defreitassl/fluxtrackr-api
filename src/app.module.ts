@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AccountsModule } from './accounts/accounts.module';
 import { BalanceForecastModule } from './balance-forecast/balance-forecast.module';
 import { AuthModule } from './auth/auth.module';
@@ -10,12 +11,14 @@ import { FixedExpensesModule } from './fixed-expenses/fixed-expenses.module';
 import { FinancialEventsModule } from './financial-events/financial-events.module';
 import { FinancialTimelineModule } from './financial-timeline/financial-timeline.module';
 import { FixedIncomesModule } from './fixed-incomes/fixed-incomes.module';
+import { FixedOccurrencesModule } from './fixed-occurrences/fixed-occurrences.module';
 import { HealthModule } from './health/health.module';
 import { MonthlySummaryModule } from './monthly-summary/monthly-summary.module';
 import { TransactionsModule } from './transactions/transactions.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     HealthModule,
     AuthModule,
     AccountsModule,
@@ -29,6 +32,7 @@ import { TransactionsModule } from './transactions/transactions.module';
     CategoriesModule,
     FixedExpensesModule,
     FixedIncomesModule,
+    FixedOccurrencesModule,
     MonthlySummaryModule,
   ],
 })

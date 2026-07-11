@@ -8,7 +8,10 @@ import {
   Max,
   Min,
   MinLength,
+  IsEnum,
+  IsUUID,
 } from 'class-validator';
+import { PaymentMethod } from '@prisma/client';
 
 export class CreateFixedIncomeDto {
   @IsString()
@@ -30,5 +33,16 @@ export class CreateFixedIncomeDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
-}
 
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  accountId?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+}

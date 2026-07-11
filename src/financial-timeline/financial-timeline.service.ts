@@ -26,9 +26,7 @@ export type TimelineItem = {
   metadata: Record<string, unknown>;
 };
 
-export type FinancialTimelineOptions = {
-  referenceDate?: Date;
-};
+export type FinancialTimelineOptions = { referenceDate?: Date };
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -51,7 +49,9 @@ export class FinancialTimelineService {
     const includesIncome = !query.type || query.type === 'income';
     const dateRange = { gte: startDate, lte: endDate };
 
-    const [transactions, events, invoices, fixedExpenses, fixedIncomes] =
+    const includeFixedExpense = includesExpense && includes(FinancialTimelineSourceTypeDto.fixed_expense);
+    const includeFixedIncome = includesIncome && includes(FinancialTimelineSourceTypeDto.fixed_income);
+    const [transactions, events, invoices, fixedOccurrences] =
       await Promise.all([
         includes(FinancialTimelineSourceTypeDto.transaction)
           ? this.prisma.transaction.findMany({
@@ -100,14 +100,20 @@ export class FinancialTimelineService {
               },
             })
           : Promise.resolve([]),
-        includesExpense && includes(FinancialTimelineSourceTypeDto.fixed_expense)
-          ? this.prisma.fixedExpense.findMany({
-              where: { userId, isActive: true, dueDay: { not: null } },
-            })
-          : Promise.resolve([]),
-        includesIncome && includes(FinancialTimelineSourceTypeDto.fixed_income)
-          ? this.prisma.fixedIncome.findMany({
-              where: { userId, isActive: true, receiveDay: { not: null } },
+        includeFixedExpense || includeFixedIncome
+          ? this.prisma.fixedOccurrence.findMany({
+              where: {
+                userId,
+                type: query.type,
+                occurrenceDate: dateRange,
+                status: { in: query.includeCanceled ? ['pending', 'canceled'] : ['pending'] },
+                OR: [
+                  ...(includeFixedExpense ? [{ type: 'expense' as const, fixedExpense: { is: { isActive: true } } }] : []),
+                  ...(includeFixedIncome ? [{ type: 'income' as const, fixedIncome: { is: { isActive: true } } }] : []),
+                  ...(query.includeCanceled && includeFixedExpense ? [{ type: 'expense' as const, status: 'canceled' as const }] : []),
+                  ...(query.includeCanceled && includeFixedIncome ? [{ type: 'income' as const, status: 'canceled' as const }] : []),
+                ],
+              },
             })
           : Promise.resolve([]),
       ]);
@@ -169,24 +175,27 @@ export class FinancialTimelineService {
           metadata: { installmentCount, creditCard: invoice.creditCard },
         };
       }),
-      ...this.fixedItems(
-        fixedExpenses,
-        'expense',
-        FinancialTimelineSourceTypeDto.fixed_expense,
-        'dueDay',
-        startDate,
-        endDate,
-        options?.referenceDate,
-      ),
-      ...this.fixedItems(
-        fixedIncomes,
-        'income',
-        FinancialTimelineSourceTypeDto.fixed_income,
-        'receiveDay',
-        startDate,
-        endDate,
-        options?.referenceDate,
-      ),
+      ...fixedOccurrences.map((occurrence) => ({
+        id: occurrence.id,
+        sourceType: occurrence.type === 'expense' ? FinancialTimelineSourceTypeDto.fixed_expense : FinancialTimelineSourceTypeDto.fixed_income,
+        sourceId: occurrence.type === 'expense' ? occurrence.fixedExpenseId! : occurrence.fixedIncomeId!,
+        type: occurrence.type,
+        title: occurrence.name,
+        amount: occurrence.amount.toFixed(2),
+        date: occurrence.occurrenceDate.toISOString(),
+        status: occurrence.status,
+        balanceImpact: occurrence.status === 'canceled' ? ('none' as const) : ('projected' as const),
+        accountId: occurrence.accountId,
+        creditCardId: null,
+        categoryId: occurrence.categoryId,
+        metadata: {
+          occurrenceId: occurrence.id,
+          fixedExpenseId: occurrence.fixedExpenseId,
+          fixedIncomeId: occurrence.fixedIncomeId,
+          paymentMethod: occurrence.paymentMethod,
+          expectedDate: occurrence.occurrenceDate.toISOString(),
+        },
+      })),
     ];
 
     items.sort(
@@ -227,67 +236,4 @@ export class FinancialTimelineService {
     }
   }
 
-  private fixedItems<
-    T extends {
-      id: string;
-      name: string;
-      amount: Prisma.Decimal;
-      dueDay?: number | null;
-      receiveDay?: number | null;
-    },
-  >(
-    records: T[],
-    type: TimelineType,
-    sourceType: FinancialTimelineSourceTypeDto,
-    dayField: 'dueDay' | 'receiveDay',
-    startDate: Date,
-    endDate: Date,
-    referenceDate?: Date,
-  ): TimelineItem[] {
-    const reference = referenceDate ?? new Date();
-    const referenceDayUtc = new Date(Date.UTC(
-      reference.getUTCFullYear(),
-      reference.getUTCMonth(),
-      reference.getUTCDate(),
-    ));
-    const effectiveStart = startDate > referenceDayUtc ? startDate : referenceDayUtc;
-    const items: TimelineItem[] = [];
-
-    for (const record of records) {
-      const configuredDay = record[dayField];
-      if (!configuredDay) continue;
-      let year = effectiveStart.getUTCFullYear();
-      let month = effectiveStart.getUTCMonth();
-      const lastYear = endDate.getUTCFullYear();
-      const lastMonth = endDate.getUTCMonth();
-      while (year < lastYear || (year === lastYear && month <= lastMonth)) {
-        const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-        const date = new Date(Date.UTC(year, month, Math.min(configuredDay, lastDay)));
-        if (date >= effectiveStart && date <= endDate) {
-          const isoDate = date.toISOString();
-          items.push({
-            id: `${record.id}:${isoDate.slice(0, 10)}`,
-            sourceType,
-            sourceId: record.id,
-            type,
-            title: record.name,
-            amount: record.amount.toFixed(2),
-            date: isoDate,
-            status: 'planned',
-            balanceImpact: 'projected',
-            accountId: null,
-            creditCardId: null,
-            categoryId: null,
-            metadata: { configuredDay },
-          });
-        }
-        month += 1;
-        if (month === 12) {
-          month = 0;
-          year += 1;
-        }
-      }
-    }
-    return items;
-  }
 }

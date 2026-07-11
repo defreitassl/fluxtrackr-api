@@ -5,6 +5,15 @@ import { Prisma } from '@prisma/client';
 import { FinancialTimelineService } from './financial-timeline.service';
 
 const decimal = (value: string | number) => new Prisma.Decimal(value);
+const occurrence = (type: 'expense' | 'income', overrides: Record<string, unknown> = {}): any => ({
+  id: `${type}-occurrence`, userId: 'user', type, status: 'pending',
+  fixedExpenseId: type === 'expense' ? 'expense-template' : null,
+  fixedIncomeId: type === 'income' ? 'income-template' : null,
+  name: type === 'expense' ? 'Rent' : 'Salary', amount: decimal(type === 'expense' ? 900 : 5000),
+  occurrenceDate: new Date('2099-02-10T00:00:00.000Z'), year: 2099, month: 2,
+  categoryId: null, accountId: null, paymentMethod: 'pix', realizedTransactionId: null,
+  ...overrides,
+});
 
 function harness(data: Record<string, any[]> = {}) {
   const calls: Record<string, any[]> = {};
@@ -18,8 +27,7 @@ function harness(data: Record<string, any[]> = {}) {
     transaction: model('transaction'),
     financialEvent: model('financialEvent'),
     creditCardInvoice: model('creditCardInvoice'),
-    fixedExpense: model('fixedExpense'),
-    fixedIncome: model('fixedIncome'),
+    fixedOccurrence: model('fixedOccurrence'),
   };
   return {
     service: new FinancialTimelineService(prisma as any),
@@ -42,8 +50,7 @@ describe('FinancialTimelineService range and queries', () => {
       'transaction',
       'financialEvent',
       'creditCardInvoice',
-      'fixedExpense',
-      'fixedIncome',
+      'fixedOccurrence',
     ]) {
       assert.equal(context.calls[source][0].where.userId, 'user-1');
     }
@@ -95,6 +102,15 @@ describe('FinancialTimelineService range and queries', () => {
     assert.equal(where.confirmedTransactionId, null);
     assert.equal(where.confirmedCreditCardPurchaseId, null);
   });
+
+  it('queries only pending active-template occurrences and never realized occurrences', async () => {
+    const context = harness();
+    await context.service.findMany('user', query());
+    const where = context.calls.fixedOccurrence[0].where;
+    assert.deepEqual(where.status.in, ['pending']);
+    assert.ok(where.OR.some((entry: any) => entry.fixedExpense?.is?.isActive === true));
+    assert.ok(where.OR.some((entry: any) => entry.fixedIncome?.is?.isActive === true));
+  });
 });
 
 describe('FinancialTimelineService aggregation', () => {
@@ -115,34 +131,20 @@ describe('FinancialTimelineService aggregation', () => {
     assert.equal(where.confirmedCreditCardPurchaseId, null);
   });
 
-  it('uses referenceDate for historical and future fixed occurrences', async () => {
+  it('reads persisted historical and future fixed occurrences', async () => {
     const context = harness({
-      fixedExpense: [{ id: 'expense', name: 'Rent', amount: decimal(900), dueDay: 10 }],
-      fixedIncome: [{ id: 'income', name: 'Salary', amount: decimal(5000), receiveDay: 5 }],
+      fixedOccurrence: [occurrence('expense'), occurrence('income')],
     });
     const historical = await context.service.findMany('user', {
       startDate: '2020-01-01T00:00:00.000Z', endDate: '2020-01-31T23:59:59.999Z', includeCanceled: false,
     }, { referenceDate: new Date('2020-01-03T15:00:00.000Z') });
-    assert.deepEqual(historical.items.map((entry) => entry.date), [
-      '2020-01-05T00:00:00.000Z', '2020-01-10T00:00:00.000Z',
-    ]);
+    assert.equal(historical.items.length, 2);
     const future = await context.service.findMany('user', {
       startDate: '2100-01-01T00:00:00.000Z', endDate: '2100-01-31T23:59:59.999Z', includeCanceled: false,
     }, { referenceDate: new Date('2099-12-15T12:00:00.000Z') });
     assert.equal(future.items.filter((entry) => entry.sourceType.startsWith('fixed_')).length, 2);
   });
 
-  it('keeps public behavior based on the current server date when referenceDate is absent', async () => {
-    const today = new Date();
-    const day = Math.min(today.getUTCDate() + 1, new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)).getUTCDate());
-    const context = harness({ fixedExpense: [{ id: 'expense', name: 'Due', amount: decimal(1), dueDay: day }] });
-    const result = await context.service.findMany('user', {
-      startDate: new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)).toISOString(),
-      endDate: new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0, 23, 59, 59, 999)).toISOString(),
-      includeCanceled: false,
-    });
-    assert.ok(result.items.some((entry) => entry.sourceType === 'fixed_expense'));
-  });
   it('orders chronologically and breaks ties by sourceType and id', async () => {
     const context = harness({
       transaction: [
@@ -189,10 +191,9 @@ describe('FinancialTimelineService aggregation', () => {
     assert.equal(result.summary.projectedExpense, '0.00');
   });
 
-  it('generates fixed income and expense occurrences and clamps short months', async () => {
+  it('maps fixed income and expense occurrences with snapshot metadata', async () => {
     const context = harness({
-      fixedExpense: [{ id: 'expense', name: 'Rent', amount: decimal(900), dueDay: 31 }],
-      fixedIncome: [{ id: 'income', name: 'Salary', amount: decimal(5000), receiveDay: 30 }],
+      fixedOccurrence: [occurrence('expense'), occurrence('income')],
     });
     const result = await context.service.findMany('user', query());
     const expenseDates = result.items
@@ -201,14 +202,19 @@ describe('FinancialTimelineService aggregation', () => {
     const incomeDates = result.items
       .filter((item) => item.sourceType === 'fixed_income')
       .map((item) => item.date);
-    assert.deepEqual(expenseDates, [
-      '2099-02-28T00:00:00.000Z',
-      '2099-03-31T00:00:00.000Z',
-    ]);
-    assert.deepEqual(incomeDates, [
-      '2099-02-28T00:00:00.000Z',
-      '2099-03-30T00:00:00.000Z',
-    ]);
+    assert.deepEqual(expenseDates, ['2099-02-10T00:00:00.000Z']);
+    assert.deepEqual(incomeDates, ['2099-02-10T00:00:00.000Z']);
+    assert.equal(result.items[0].metadata.occurrenceId, 'expense-occurrence');
+  });
+
+  it('shows canceled occurrences only when requested with no balance impact', async () => {
+    const hidden = harness();
+    await hidden.service.findMany('user', query());
+    assert.deepEqual(hidden.calls.fixedOccurrence[0].where.status.in, ['pending']);
+    const visible = harness({ fixedOccurrence: [occurrence('expense', { status: 'canceled' })] });
+    const result = await visible.service.findMany('user', query({ includeCanceled: true }));
+    assert.equal(result.items[0].status, 'canceled');
+    assert.equal(result.items[0].balanceImpact, 'none');
   });
 
   it('summarizes realized and projected values without duplicating converted events', async () => {
@@ -230,7 +236,7 @@ describe('FinancialTimelineService aggregation', () => {
         date: new Date('2099-02-10T00:00:00.000Z'), status: 'planned', accountId: 'account',
         creditCardId: null, categoryId: null, recurrence: 'once', installmentCount: 1,
       }],
-      fixedIncome: [{ id: 'salary', name: 'Salary', amount: decimal(5000), receiveDay: 20 }],
+      fixedOccurrence: [occurrence('income', { amount: decimal(5000), name: 'Salary' })],
     });
     const result = await context.service.findMany('user', query({ endDate: '2099-02-28T23:59:59.999Z' }));
     assert.equal(result.items.filter((item) => item.id === 'transaction').length, 1);

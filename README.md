@@ -66,6 +66,7 @@ npm run build
 - `GET/POST/PATCH/DELETE /categories`
 - `GET/POST/PATCH/DELETE /fixed-expenses`
 - `GET/POST/PATCH/DELETE /fixed-incomes`
+- `GET /fixed-occurrences`, `GET /fixed-occurrences/:id`, `POST /fixed-occurrences/:id/realize` e `POST /fixed-occurrences/:id/cancel`
 - `GET /monthly-summary`
 
 ## Compras no cartao e faturas
@@ -119,7 +120,7 @@ curl -X POST http://localhost:3001/financial-events/FINANCIAL_EVENT_ID/realize \
 
 ## Timeline financeira
 
-A timeline agrega transacoes realizadas, eventos financeiros futuros, faturas e ocorrencias virtuais de gastos e ganhos fixos. A consulta e somente de leitura e exige um intervalo de no maximo 366 dias.
+A timeline agrega transacoes realizadas, eventos financeiros futuros, faturas e ocorrencias mensais persistidas de gastos e ganhos fixos. A consulta e somente de leitura e exige um intervalo de no maximo 366 dias.
 
 ```bash
 curl 'http://localhost:3001/financial-timeline?startDate=2026-08-01T00%3A00%3A00.000Z&endDate=2026-08-31T23%3A59%3A59.999Z' \
@@ -129,7 +130,9 @@ curl 'http://localhost:3001/financial-timeline?startDate=2026-08-01T00%3A00%3A00
   -H 'Authorization: Bearer TOKEN'
 ```
 
-Eventos `planned`, `confirmed` e `postponed` aparecem como projetados. As ocorrencias de gastos e ganhos fixos sao calculadas em memoria e nao sao persistidas. Faturas aparecem uma vez por mes, com o total das parcelas nao canceladas.
+Eventos `planned`, `confirmed` e `postponed` aparecem como projetados. Ocorrencias fixas `pending` de templates ativos aparecem como projetadas; realizadas aparecem somente pela `Transaction`, e canceladas apenas com `includeCanceled=true`. A materializacao idempotente cobre o mes UTC atual e os 13 seguintes na inicializacao, diariamente e apos criacao/atualizacao do template.
+
+`DELETE /fixed-expenses/:id` e `DELETE /fixed-incomes/:id` arquivam o template com `isActive: false`. Os templates aceitam `categoryId`, `accountId` e `paymentMethod` opcionais. Contas vinculadas devem estar ativas; categorias devem ser compativeis; `credit` nao pode ser realizado diretamente em conta.
 
 ## Previsao consolidada de saldo
 

@@ -344,7 +344,7 @@ export class FinancialEventsService {
     }
     if (data.accountId) {
       const account = await tx.account.findFirst({
-        where: { id: data.accountId, userId },
+        where: { id: data.accountId, userId, isActive: true },
         select: { id: true },
       });
       if (!account) throw new BadRequestException('Invalid accountId');

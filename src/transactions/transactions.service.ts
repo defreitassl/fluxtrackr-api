@@ -156,6 +156,7 @@ export class TransactionsService {
       where: {
         id: accountId,
         userId,
+        isActive: true,
       },
       select: {
         id: true,
