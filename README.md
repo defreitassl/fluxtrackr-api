@@ -61,6 +61,7 @@ npm run build
 - `GET /credit-card-invoices`, `GET /credit-card-invoices/:id` e `POST /credit-card-invoices/:id/pay`
 - `GET/POST/PATCH/DELETE /financial-events`
 - `POST /financial-events/:id/postpone` e `POST /financial-events/:id/confirm`
+- `GET /financial-timeline`
 - `GET/POST/PATCH/DELETE /categories`
 - `GET/POST/PATCH/DELETE /fixed-expenses`
 - `GET/POST/PATCH/DELETE /fixed-incomes`
@@ -111,6 +112,20 @@ curl -X POST http://localhost:3001/financial-events \
 curl -X POST http://localhost:3001/financial-events/FINANCIAL_EVENT_ID/confirm \
   -H 'Authorization: Bearer TOKEN'
 ```
+
+## Timeline financeira
+
+A timeline agrega transacoes realizadas, eventos financeiros futuros, faturas e ocorrencias virtuais de gastos e ganhos fixos. A consulta e somente de leitura e exige um intervalo de no maximo 366 dias.
+
+```bash
+curl 'http://localhost:3001/financial-timeline?startDate=2026-08-01T00%3A00%3A00.000Z&endDate=2026-08-31T23%3A59%3A59.999Z' \
+  -H 'Authorization: Bearer TOKEN'
+
+curl 'http://localhost:3001/financial-timeline?startDate=2026-08-01T00%3A00%3A00.000Z&endDate=2026-08-31T23%3A59%3A59.999Z&type=expense&sourceType=credit_card_invoice&includeCanceled=false' \
+  -H 'Authorization: Bearer TOKEN'
+```
+
+As ocorrencias de gastos e ganhos fixos sao calculadas em memoria e nao sao persistidas. Faturas aparecem uma vez por mes, com o total das parcelas nao canceladas.
 
 Validacao completa:
 

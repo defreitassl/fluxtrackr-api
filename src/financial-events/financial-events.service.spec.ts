@@ -172,6 +172,39 @@ describe('FinancialEventsService CRUD and validation', () => {
     );
   });
 
+  it('rejects paymentMethod for card events and credit for account events', async () => {
+    const context = harness({ events: [] });
+    await assert.rejects(
+      () =>
+        context.service.create(
+          'user',
+          createDto({
+            accountId: undefined,
+            creditCardId: 'card',
+            paymentMethod: 'pix',
+          }),
+        ),
+      /does not accept paymentMethod/,
+    );
+    await assert.rejects(
+      () =>
+        context.service.create(
+          'user',
+          createDto({ paymentMethod: 'credit' }),
+        ),
+      /does not accept credit paymentMethod/,
+    );
+  });
+
+  it('accepts boleto for account events', async () => {
+    const context = harness({ events: [] });
+    const created = await context.service.create(
+      'user',
+      createDto({ paymentMethod: 'boleto' }),
+    );
+    assert.equal(created.paymentMethod, 'boleto');
+  });
+
   it('postpones mutable events and blocks canceled or realized events', async () => {
     const context = harness();
     const postponed = await context.service.postpone('user', 'event-1', {

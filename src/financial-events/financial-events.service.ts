@@ -24,7 +24,14 @@ type EventData = {
   categoryId?: string | null;
   accountId?: string | null;
   creditCardId?: string | null;
-  paymentMethod?: 'pix' | 'debit' | 'credit' | 'cash' | 'transfer' | null;
+  paymentMethod?:
+    | 'pix'
+    | 'debit'
+    | 'credit'
+    | 'cash'
+    | 'transfer'
+    | 'boleto'
+    | null;
   recurrence: SupportedRecurrence;
   installmentCount: number;
   notes?: string | null;
@@ -263,6 +270,16 @@ export class FinancialEventsService {
     } else if (!!data.accountId === !!data.creditCardId) {
       throw new BadRequestException(
         'Expense financial event requires either accountId or creditCardId',
+      );
+    }
+    if (data.creditCardId && data.paymentMethod) {
+      throw new BadRequestException(
+        'Credit card financial event does not accept paymentMethod',
+      );
+    }
+    if (data.accountId && data.paymentMethod === 'credit') {
+      throw new BadRequestException(
+        'Account financial event does not accept credit paymentMethod',
       );
     }
     if (

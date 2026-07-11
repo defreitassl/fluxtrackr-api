@@ -26,6 +26,7 @@ export enum PaymentMethodDto {
   credit = 'credit',
   cash = 'cash',
   transfer = 'transfer',
+  boleto = 'boleto',
 }
 
 export class CreateTransactionDto {

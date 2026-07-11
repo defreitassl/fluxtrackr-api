@@ -28,6 +28,7 @@ enum PaymentMethod {
   credit
   cash
   transfer
+  boleto
 }
 
 enum AccountType {
