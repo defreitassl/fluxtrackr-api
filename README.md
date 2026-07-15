@@ -181,3 +181,11 @@ npm run prisma:generate
 npm run build
 npm test
 ```
+
+## Assinaturas financeiras
+
+`Subscription` é um template recorrente; `SubscriptionCharge` é uma cobrança persistida com snapshot e estado próprio. As cobranças são materializadas de forma idempotente para o mês UTC atual e 13 seguintes, no bootstrap, às 00:10 UTC e após alterações do template. Somente `monthly`, `semiannual` e `yearly` são aceitas; cada assinatura usa exatamente uma conta ativa (com método não `credit`) ou um cartão ativo (sem método).
+
+Rotas JWT: `POST/GET/PATCH/DELETE /subscriptions`, `GET /subscriptions/summary`, `GET /subscription-charges`, `GET /subscription-charges/:id`, `POST /subscription-charges/:id/realize` e `POST /subscription-charges/:id/cancel`.
+
+Cobranças pendentes aparecem uma vez na Timeline e previsão. Uma realização em conta cria uma `Transaction`; no cartão, reutiliza `CreditCardPurchaseDomainService`, criando compra/parcela/fatura. Os resultados realizados não são repetidos pela cobrança. O Dashboard inclui pendências de assinatura no comprometido e exclui suas realizações de `spentToday`.

@@ -28,6 +28,7 @@ function harness(data: Record<string, any[]> = {}) {
     financialEvent: model('financialEvent'),
     creditCardInvoice: model('creditCardInvoice'),
     fixedOccurrence: model('fixedOccurrence'),
+    subscriptionCharge: model('subscriptionCharge'),
     accountTransfer: model('accountTransfer'),
     accountBalanceAdjustment: model('accountBalanceAdjustment'),
   };
@@ -53,6 +54,7 @@ describe('FinancialTimelineService range and queries', () => {
       'financialEvent',
       'creditCardInvoice',
       'fixedOccurrence',
+      'subscriptionCharge',
       'accountTransfer',
       'accountBalanceAdjustment',
     ]) {

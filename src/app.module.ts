@@ -19,6 +19,8 @@ import { FixedOccurrencesModule } from './fixed-occurrences/fixed-occurrences.mo
 import { HealthModule } from './health/health.module';
 import { MonthlySummaryModule } from './monthly-summary/monthly-summary.module';
 import { TransactionsModule } from './transactions/transactions.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { SubscriptionChargesModule } from './subscription-charges/subscription-charges.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { TransactionsModule } from './transactions/transactions.module';
     FixedIncomesModule,
     FixedOccurrencesModule,
     MonthlySummaryModule,
+    SubscriptionsModule,
+    SubscriptionChargesModule,
   ],
 })
 export class AppModule {}

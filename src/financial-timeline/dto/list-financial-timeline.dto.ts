@@ -14,6 +14,7 @@ export enum FinancialTimelineSourceTypeDto {
   credit_card_invoice = 'credit_card_invoice',
   fixed_expense = 'fixed_expense',
   fixed_income = 'fixed_income',
+  subscription = 'subscription',
   account_transfer = 'account_transfer',
   account_balance_adjustment = 'account_balance_adjustment',
 }

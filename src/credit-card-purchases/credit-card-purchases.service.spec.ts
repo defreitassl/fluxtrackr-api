@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { CreditCardPurchasesService } from './credit-card-purchases.service';
 import { CreditCardPurchaseDomainService } from './credit-card-purchase-domain.service';
 
@@ -18,8 +18,8 @@ const createService = (prisma: any) =>
     new CreditCardPurchaseDomainService(),
   );
 
-function transactionPrisma(card: object | null, category: object | null = { id: 'category' }) {
-  const invoices = new Map<string, { id: string }>();
+function transactionPrisma(card: object | null, category: object | null = { id: 'category' }, invoiceStatus?: string) {
+  const invoices = new Map<string, { id: string; status?: string }>();
   let purchaseNumber = 0;
   const tx = {
     creditCard: {
@@ -36,7 +36,7 @@ function transactionPrisma(card: object | null, category: object | null = { id: 
     creditCardInvoice: {
       upsert: async ({ create }: any) => {
         const key = `${create.creditCardId}-${create.year}-${create.month}`;
-        if (!invoices.has(key)) invoices.set(key, { id: `invoice-${invoices.size + 1}` });
+        if (!invoices.has(key)) invoices.set(key, { id: `invoice-${invoices.size + 1}`, status: invoiceStatus });
         return invoices.get(key);
       },
     },
@@ -83,6 +83,18 @@ describe('CreditCardPurchasesService', () => {
     await service.create('user-a', dto);
     assert.equal(invoices.size, 1);
   });
+
+  it('accepts installments for an open invoice', async () => {
+    const { prisma } = transactionPrisma({ id: dto.creditCardId, accountId: 'account', closingDay: 25, dueDay: 7 }, { id: 'category' }, 'open');
+    await createService(prisma).create('user-a', dto);
+  });
+
+  for (const status of ['closed', 'overdue', 'paid', 'canceled']) {
+    it(`rejects installments for a ${status} invoice`, async () => {
+      const { prisma } = transactionPrisma({ id: dto.creditCardId, accountId: 'account', closingDay: 25, dueDay: 7 }, { id: 'category' }, status);
+      await assert.rejects(() => createService(prisma).create('user-a', dto), ConflictException);
+    });
+  }
 
   it('isolates purchase reads by user and returns 404', async () => {
     const prisma = { creditCardPurchase: { findFirst: async ({ where }: any) => where.userId === 'owner' ? { id: where.id, installments: [] } : null } };

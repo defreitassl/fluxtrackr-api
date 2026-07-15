@@ -6,9 +6,16 @@ import { ListAccountTransfersDto } from './dto/list-account-transfers.dto';
 
 @Injectable()
 export class AccountTransfersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   async create(userId: string, dto: CreateAccountTransferDto) {
+    const occurredAt = dto.occurredAt ? new Date(dto.occurredAt) : this.now();
+    if (occurredAt > this.now()) {
+      throw new BadRequestException('Future account transfers are not supported');
+    }
     if (dto.sourceAccountId === dto.destinationAccountId) {
       throw new BadRequestException('Source and destination accounts must be different');
     }
@@ -33,7 +40,7 @@ export class AccountTransfersService {
           destinationAccountId: dto.destinationAccountId,
           amount,
           description: dto.description,
-          occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+          occurredAt,
         },
       });
     });

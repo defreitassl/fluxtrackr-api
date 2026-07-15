@@ -83,6 +83,7 @@ export class DashboardOverviewService {
       invoices,
       fixedOccurrences,
       financialEvents,
+      subscriptionCharges,
       spentTodayTransactions,
       spentTodayCardInstallments,
       timeline,
@@ -127,6 +128,10 @@ export class DashboardOverviewService {
         },
         select: { expectedAmount: true },
       }),
+      this.prisma.subscriptionCharge.findMany({
+        where: { userId, status: 'pending', chargeDate: { lte: monthEnd } },
+        select: { amount: true },
+      }),
       this.prisma.transaction.aggregate({
         where: {
           userId,
@@ -136,6 +141,7 @@ export class DashboardOverviewService {
           paidCreditCardInvoice: { is: null },
           realizedFixedOccurrence: { is: null },
           confirmedFinancialEvent: { is: null },
+          realizedSubscriptionCharge: { is: null },
         },
         _sum: { amount: true },
       }),
@@ -149,6 +155,7 @@ export class DashboardOverviewService {
               userId,
               purchaseDate: { gte: dayStart, lte: asOf },
               confirmedFinancialEvent: { is: null },
+              realizedSubscriptionCharge: { is: null },
             },
           },
         },
@@ -213,9 +220,14 @@ export class DashboardOverviewService {
       (total, event) => total.plus(event.expectedAmount),
       ZERO(),
     );
+    const committedSubscriptions = subscriptionCharges.reduce(
+      (total, charge) => total.plus(charge.amount),
+      ZERO(),
+    );
     const committed = committedInvoices
       .plus(committedOccurrences)
-      .plus(committedEvents);
+      .plus(committedEvents)
+      .plus(committedSubscriptions);
     const totalBalance = new Prisma.Decimal(forecast.currentBalance);
     const spentToday = (spentTodayTransactions._sum.amount ?? ZERO())
       .plus(spentTodayCardInstallments._sum.installmentAmount ?? ZERO());

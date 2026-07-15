@@ -81,6 +81,12 @@ enum FixedOccurrenceStatus {
   canceled
 }
 
+enum SubscriptionChargeStatus {
+  pending
+  realized
+  canceled
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -100,6 +106,7 @@ model User {
   creditCardPurchases CreditCardPurchase[]
   events              FinancialEvent[]
   subscriptions       Subscription[]
+  subscriptionCharges SubscriptionCharge[]
   fixedOccurrences    FixedOccurrence[]
   accountTransfers    AccountTransfer[]
   balanceAdjustments  AccountBalanceAdjustment[]
@@ -119,6 +126,7 @@ model Category {
   purchases        CreditCardPurchase[]
   events           FinancialEvent[]
   subscriptions    Subscription[]
+  subscriptionCharges SubscriptionCharge[]
   fixedExpenses    FixedExpense[]
   fixedIncomes     FixedIncome[]
   fixedOccurrences FixedOccurrence[]
@@ -147,6 +155,7 @@ model Transaction {
   confirmedFinancialEvent FinancialEvent?    @relation("ConfirmedFinancialEvent")
   paidCreditCardInvoice   CreditCardInvoice? @relation("InvoicePaymentTransaction")
   realizedFixedOccurrence FixedOccurrence?   @relation("FixedOccurrenceTransaction")
+  realizedSubscriptionCharge SubscriptionCharge? @relation("SubscriptionChargeTransaction")
 
   @@index([userId, occurredAt])
   @@index([categoryId])
@@ -195,6 +204,7 @@ model Account {
   invoices           CreditCardInvoice[]
   events             FinancialEvent[]
   subscriptions      Subscription[]
+  subscriptionCharges SubscriptionCharge[]
   fixedExpenses      FixedExpense[]
   fixedIncomes       FixedIncome[]
   fixedOccurrences   FixedOccurrence[]
@@ -229,6 +239,7 @@ model CreditCard {
   purchases     CreditCardPurchase[]
   events        FinancialEvent[]
   subscriptions Subscription[]
+  subscriptionCharges SubscriptionCharge[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -311,6 +322,7 @@ model CreditCardPurchase {
   category                Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   installments            Installment[]
   confirmedFinancialEvent FinancialEvent? @relation("ConfirmedCreditCardPurchase")
+  realizedSubscriptionCharge SubscriptionCharge? @relation("SubscriptionChargeCreditCardPurchase")
 
   @@index([userId, purchaseDate])
   @@index([creditCardId])
@@ -360,6 +372,7 @@ model Subscription {
   categoryId     String?
   accountId      String?
   creditCardId   String?
+  paymentMethod  PaymentMethod?
   autoRenew      Boolean        @default(true)
   isActive       Boolean        @default(true)
   createdAt      DateTime       @default(now())
@@ -369,10 +382,48 @@ model Subscription {
   category   Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   account    Account?    @relation(fields: [accountId], references: [id], onDelete: SetNull)
   creditCard CreditCard? @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  charges    SubscriptionCharge[]
 
   @@unique([userId, name])
   @@index([userId, nextChargeDate])
   @@index([categoryId])
+  @@index([accountId])
+  @@index([creditCardId])
+}
+
+model SubscriptionCharge {
+  id                           String                   @id @default(uuid())
+  userId                       String
+  subscriptionId               String
+  status                       SubscriptionChargeStatus @default(pending)
+  name                         String
+  amount                       Decimal                  @db.Decimal(12, 2)
+  chargeDate                   DateTime
+  year                         Int
+  month                        Int
+  categoryId                   String?
+  accountId                    String?
+  creditCardId                 String?
+  paymentMethod                PaymentMethod?
+  realizedTransactionId        String?                  @unique
+  realizedCreditCardPurchaseId String?                  @unique
+  realizedAt                   DateTime?
+  canceledAt                   DateTime?
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
+
+  user                         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription                 Subscription             @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  category                     Category?                @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  account                      Account?                 @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  creditCard                   CreditCard?              @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
+  realizedTransaction          Transaction?             @relation("SubscriptionChargeTransaction", fields: [realizedTransactionId], references: [id], onDelete: SetNull)
+  realizedCreditCardPurchase   CreditCardPurchase?      @relation("SubscriptionChargeCreditCardPurchase", fields: [realizedCreditCardPurchaseId], references: [id], onDelete: SetNull)
+
+  @@unique([subscriptionId, chargeDate])
+  @@index([userId, chargeDate])
+  @@index([userId, status, chargeDate])
+  @@index([subscriptionId])
   @@index([accountId])
   @@index([creditCardId])
 }

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { getInvoiceCycles, splitAmountInCents } from './credit-card-cycle';
 
@@ -81,6 +81,11 @@ export class CreditCardPurchaseDomainService {
           closingDate: cycle.closingDate,
         },
       });
+      if (invoice.status && invoice.status !== 'open') {
+        throw new ConflictException(
+          `Credit card invoice ${year}-${String(month).padStart(2, '0')} is ${invoice.status} and cannot receive installments`,
+        );
+      }
       await tx.installment.create({
         data: {
           userId,

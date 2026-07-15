@@ -40,6 +40,7 @@ function harness(options: Record<string, any> = {}) {
     creditCardInvoice: { findMany: async (args: any) => (calls.invoices = args, options.invoices ?? []) },
     fixedOccurrence: { findMany: async (args: any) => (calls.occurrences = args, options.occurrences ?? []) },
     financialEvent: { findMany: async (args: any) => (calls.events = args, options.events ?? []) },
+    subscriptionCharge: { findMany: async (args: any) => (calls.subscriptions = args, options.subscriptions ?? []) },
     installment: { aggregate: async (args: any) => (calls.spentTodayCard = args, { _sum: { installmentAmount: options.spentTodayCard ?? null } }) },
     accountTransfer: { findMany: async (args: any) => (calls.latestTransfers = args, options.transfers ?? []) },
     accountBalanceAdjustment: { findMany: async (args: any) => (calls.latestAdjustments = args, options.adjustments ?? []) },
@@ -250,7 +251,7 @@ describe('DashboardOverviewService composition', () => {
     });
     assert.deepEqual(context.calls.latestTransactions.orderBy, [{ occurredAt: 'desc' }, { id: 'desc' }]);
     assert.equal(context.calls.latestTransactions.take, 5);
-    for (const key of ['invoices', 'occurrences', 'events']) assert.equal(context.calls[key].where.userId, 'owner');
+    for (const key of ['invoices', 'occurrences', 'events', 'subscriptions']) assert.equal(context.calls[key].where.userId, 'owner');
   });
 
   it('combines and limits latest movements by date and id', async () => {

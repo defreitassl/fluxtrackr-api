@@ -34,7 +34,7 @@ function harness(options: Record<string, any> = {}) {
       try { return await operation(tx); } catch (error) { state.transfers.splice(count); throw error; }
     },
   };
-  return { service: new AccountTransfersService(prisma), state };
+  return { service: new AccountTransfersService(prisma, options.now ?? (() => new Date('2026-07-15T14:00:00.000Z'))), state };
 }
 
 describe('AccountTransfersService', () => {
@@ -54,6 +54,13 @@ describe('AccountTransfersService', () => {
     await assert.rejects(() => harness({ validAccounts: false }).service.create('user', dto()), BadRequestException);
     await assert.rejects(() => harness().service.create('user', dto({ amount: '0' })), BadRequestException);
     await assert.rejects(() => harness().service.create('user', dto({ amount: '-1' })), BadRequestException);
+  });
+
+  it('rejects future transfers and permits past transfers with a controlled clock', async () => {
+    const context = harness({ now: () => new Date('2026-07-15T14:00:00.000Z') });
+    await assert.rejects(() => context.service.create('user', dto({ occurredAt: '2026-07-15T14:00:00.001Z' })), BadRequestException);
+    const past = await context.service.create('user', dto({ occurredAt: '2026-07-15T13:59:59.999Z' }));
+    assert.equal(past.occurredAt.toISOString(), '2026-07-15T13:59:59.999Z');
   });
 
   it('rolls back failures and retries P2034', async () => {

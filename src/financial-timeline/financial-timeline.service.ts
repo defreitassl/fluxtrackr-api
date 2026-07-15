@@ -53,7 +53,7 @@ export class FinancialTimelineService {
 
     const includeFixedExpense = includesExpense && includes(FinancialTimelineSourceTypeDto.fixed_expense);
     const includeFixedIncome = includesIncome && includes(FinancialTimelineSourceTypeDto.fixed_income);
-    const [transactions, events, invoices, fixedOccurrences, transfers, adjustments] =
+    const [transactions, events, invoices, fixedOccurrences, subscriptionCharges, transfers, adjustments] =
       await Promise.all([
         (includesExpense || includesIncome) && includes(FinancialTimelineSourceTypeDto.transaction)
           ? this.prisma.transaction.findMany({
@@ -116,6 +116,16 @@ export class FinancialTimelineService {
                   ...(query.includeCanceled && includeFixedIncome ? [{ type: 'income' as const, status: 'canceled' as const }] : []),
                 ],
               },
+            })
+          : Promise.resolve([]),
+        includesExpense && includes(FinancialTimelineSourceTypeDto.subscription)
+          ? this.prisma.subscriptionCharge.findMany({
+              where: {
+                userId,
+                chargeDate: dateRange,
+                status: { in: query.includeCanceled ? ['pending', 'canceled'] : ['pending'] },
+              },
+              include: { subscription: { select: { autoRenew: true } } },
             })
           : Promise.resolve([]),
         includesTransfer && includes(FinancialTimelineSourceTypeDto.account_transfer)
@@ -206,6 +216,28 @@ export class FinancialTimelineService {
           fixedIncomeId: occurrence.fixedIncomeId,
           paymentMethod: occurrence.paymentMethod,
           expectedDate: occurrence.occurrenceDate.toISOString(),
+        },
+      })),
+      ...subscriptionCharges.map((charge) => ({
+        id: charge.id,
+        sourceType: FinancialTimelineSourceTypeDto.subscription,
+        sourceId: charge.subscriptionId,
+        type: 'expense' as const,
+        title: charge.name,
+        amount: charge.amount.toFixed(2),
+        date: charge.chargeDate.toISOString(),
+        status: charge.status,
+        balanceImpact: charge.status === 'canceled' ? ('none' as const) : ('projected' as const),
+        accountId: charge.accountId,
+        creditCardId: charge.creditCardId,
+        categoryId: charge.categoryId,
+        metadata: {
+          subscriptionId: charge.subscriptionId,
+          subscriptionChargeId: charge.id,
+          accountId: charge.accountId,
+          creditCardId: charge.creditCardId,
+          paymentMethod: charge.paymentMethod,
+          autoRenew: charge.subscription.autoRenew,
         },
       })),
       ...transfers.map((transfer) => ({
