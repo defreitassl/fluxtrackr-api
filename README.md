@@ -161,7 +161,7 @@ saldo total
 = disponivel para gastar
 ```
 
-O saldo total e o `currentBalance` calculado pelo `BalanceForecastService`. O comprometido soma faturas `open`, `closed` e `overdue`, ocorrencias fixas de despesa `pending` com template ativo e eventos de despesa `confirmed`, vencidos ou com data ate o fim do mes UTC. Faturas usam o total compartilhado de parcelas nao canceladas. Assinaturas ainda nao entram nesse valor porque seu modulo funcional nao foi implementado.
+O saldo total e o `currentBalance` calculado pelo `BalanceForecastService`. O comprometido soma faturas `open`, `closed` e `overdue`, ocorrencias fixas de despesa `pending` com template ativo, eventos de despesa `confirmed` e cobranças pendentes de assinaturas financeiras, vencidos ou com data ate o fim do mes UTC. Faturas usam o total compartilhado de parcelas nao canceladas. Planos pagos e cobrança comercial do próprio FluxTrackr continuam fora do escopo.
 
 `spentToday` considera apenas transacoes comuns e parcelas de compras normais no cartao feitas no dia cuja fatura vence ate o fim do mes. Pagamentos de fatura, realizacoes e compras originadas de evento sao excluidos. A recomendacao parte do disponivel antes do gasto de hoje, evitando desconto duplo. Faturas de total zero nao aparecem como proxima fatura.
 
@@ -184,8 +184,8 @@ npm test
 
 ## Assinaturas financeiras
 
-`Subscription` é um template recorrente; `SubscriptionCharge` é uma cobrança persistida com snapshot e estado próprio. As cobranças são materializadas de forma idempotente para o mês UTC atual e 13 seguintes, no bootstrap, às 00:10 UTC e após alterações do template. Somente `monthly`, `semiannual` e `yearly` são aceitas; cada assinatura usa exatamente uma conta ativa (com método não `credit`) ou um cartão ativo (sem método).
+`Subscription` é um template recorrente; `SubscriptionCharge` é uma cobrança persistida com snapshot e estado próprio. `recurrenceAnchorDate` é a base UTC da série; `nextChargeDate` é somente o ponteiro da próxima pendência. As cobranças são materializadas de forma idempotente para o mês UTC atual e 13 seguintes, no bootstrap, às 00:10 UTC e após alterações do template. Assinaturas inativas não geram cobranças nem são reativadas automaticamente; somente `PATCH {"isActive":true}` reativa. Somente `monthly`, `semiannual` e `yearly` são aceitas; cada assinatura usa exatamente uma conta ativa (com método não `credit`) ou um cartão ativo (sem método).
 
 Rotas JWT: `POST/GET/PATCH/DELETE /subscriptions`, `GET /subscriptions/summary`, `GET /subscription-charges`, `GET /subscription-charges/:id`, `POST /subscription-charges/:id/realize` e `POST /subscription-charges/:id/cancel`.
 
-Cobranças pendentes aparecem uma vez na Timeline e previsão. Uma realização em conta cria uma `Transaction`; no cartão, reutiliza `CreditCardPurchaseDomainService`, criando compra/parcela/fatura. Os resultados realizados não são repetidos pela cobrança. O Dashboard inclui pendências de assinatura no comprometido e exclui suas realizações de `spentToday`.
+Cobranças pendentes aparecem uma vez na Timeline e previsão. Uma realização aceita data atual ou passada e um único override de destino: conta remove cartão, cartão remove conta e método; ambos os destinos, método em cartão ou data futura retornam `400`. Uma realização em conta cria uma `Transaction`; no cartão, reutiliza `CreditCardPurchaseDomainService`, criando compra/parcela/fatura. Os resultados realizados não são repetidos pela cobrança. O Dashboard inclui pendências de assinatura no comprometido e exclui suas realizações de `spentToday`.

@@ -7,7 +7,7 @@ import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { SubscriptionChargesMaterializerService } from './subscription-charges-materializer.service';
 
 type SubscriptionData = {
-  name: string; amount: Prisma.Decimal; nextChargeDate: Date; recurrence: RecurrenceType;
+  name: string; amount: Prisma.Decimal; recurrenceAnchorDate: Date; nextChargeDate: Date; recurrence: RecurrenceType;
   categoryId: string | null; accountId: string | null; creditCardId: string | null;
   paymentMethod: PaymentMethod | null; autoRenew: boolean; isActive: boolean;
 };
@@ -21,7 +21,7 @@ export class SubscriptionsService {
       const data = this.fromDto(dto);
       await this.validate(tx, userId, data);
       const subscription = await tx.subscription.create({ data: { userId, ...data } });
-      await this.materializer.materializeSubscription(subscription, new Date(), tx);
+      if (subscription.isActive) await this.materializer.materializeSubscription(subscription, new Date(), tx);
       return tx.subscription.findUniqueOrThrow({ where: { id: subscription.id } });
     });
   }
@@ -74,17 +74,19 @@ export class SubscriptionsService {
   }
 
   private fromDto(dto: CreateSubscriptionDto): SubscriptionData {
-    return { name: dto.name, amount: new Prisma.Decimal(dto.amount), nextChargeDate: new Date(dto.nextChargeDate), recurrence: dto.recurrence, categoryId: dto.categoryId ?? null, accountId: dto.accountId ?? null, creditCardId: dto.creditCardId ?? null, paymentMethod: dto.paymentMethod ?? null, autoRenew: dto.autoRenew ?? true, isActive: dto.isActive ?? true };
+    const nextChargeDate = new Date(dto.nextChargeDate);
+    return { name: dto.name, amount: new Prisma.Decimal(dto.amount), recurrenceAnchorDate: nextChargeDate, nextChargeDate, recurrence: dto.recurrence, categoryId: dto.categoryId ?? null, accountId: dto.accountId ?? null, creditCardId: dto.creditCardId ?? null, paymentMethod: dto.paymentMethod ?? null, autoRenew: dto.autoRenew ?? true, isActive: dto.isActive ?? true };
   }
 
   private merge(current: Subscription, dto: UpdateSubscriptionDto): SubscriptionData {
-    return { name: dto.name ?? current.name, amount: dto.amount === undefined ? current.amount : new Prisma.Decimal(dto.amount), nextChargeDate: dto.nextChargeDate ? new Date(dto.nextChargeDate) : current.nextChargeDate, recurrence: dto.recurrence ?? current.recurrence, categoryId: dto.categoryId === undefined ? current.categoryId : dto.categoryId, accountId: dto.accountId === undefined ? current.accountId : dto.accountId, creditCardId: dto.creditCardId === undefined ? current.creditCardId : dto.creditCardId, paymentMethod: dto.paymentMethod === undefined ? current.paymentMethod : dto.paymentMethod, autoRenew: dto.autoRenew ?? current.autoRenew, isActive: dto.isActive ?? current.isActive };
+    const nextChargeDate = dto.nextChargeDate ? new Date(dto.nextChargeDate) : current.nextChargeDate;
+    return { name: dto.name ?? current.name, amount: dto.amount === undefined ? current.amount : new Prisma.Decimal(dto.amount), recurrenceAnchorDate: dto.nextChargeDate ? nextChargeDate : current.recurrenceAnchorDate, nextChargeDate, recurrence: dto.recurrence ?? current.recurrence, categoryId: dto.categoryId === undefined ? current.categoryId : dto.categoryId, accountId: dto.accountId === undefined ? current.accountId : dto.accountId, creditCardId: dto.creditCardId === undefined ? current.creditCardId : dto.creditCardId, paymentMethod: dto.paymentMethod === undefined ? current.paymentMethod : dto.paymentMethod, autoRenew: dto.autoRenew ?? current.autoRenew, isActive: dto.isActive ?? current.isActive };
   }
 
   private async validate(tx: Prisma.TransactionClient, userId: string, data: SubscriptionData) {
     if (!data.name.trim()) throw new BadRequestException('Subscription name is required');
     if (new Prisma.Decimal(data.amount).lessThanOrEqualTo(0)) throw new BadRequestException('Subscription amount must be greater than zero');
-    if (Number.isNaN(data.nextChargeDate.getTime())) throw new BadRequestException('nextChargeDate must be a valid ISO date');
+    if (Number.isNaN(data.nextChargeDate.getTime()) || Number.isNaN(data.recurrenceAnchorDate.getTime())) throw new BadRequestException('nextChargeDate must be a valid ISO date');
     if (!['monthly', 'semiannual', 'yearly'].includes(data.recurrence)) throw new BadRequestException('Subscription recurrence must be monthly, semiannual, or yearly');
     if (!!data.accountId === !!data.creditCardId) throw new BadRequestException('Subscription requires exactly one accountId or creditCardId');
     if (data.categoryId) {

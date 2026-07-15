@@ -367,6 +367,7 @@ model Subscription {
   userId         String
   name           String
   amount         Decimal        @db.Decimal(12, 2)
+  recurrenceAnchorDate DateTime
   nextChargeDate DateTime
   recurrence     RecurrenceType
   categoryId     String?
@@ -385,6 +386,7 @@ model Subscription {
   charges    SubscriptionCharge[]
 
   @@unique([userId, name])
+  @@index([userId, recurrenceAnchorDate])
   @@index([userId, nextChargeDate])
   @@index([categoryId])
   @@index([accountId])

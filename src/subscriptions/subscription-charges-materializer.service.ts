@@ -9,10 +9,10 @@ function utcDayStart(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-function addMonthsPreservingDay(base: Date, offset: number) {
-  const target = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + offset, 1));
-  const day = Math.min(base.getUTCDate(), new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate());
-  return new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), day, base.getUTCHours(), base.getUTCMinutes(), base.getUTCSeconds(), base.getUTCMilliseconds()));
+export function getRecurringDate(anchorDate: Date, monthOffset: number): Date {
+  const target = new Date(Date.UTC(anchorDate.getUTCFullYear(), anchorDate.getUTCMonth() + monthOffset, 1));
+  const day = Math.min(anchorDate.getUTCDate(), new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate());
+  return new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), day, anchorDate.getUTCHours(), anchorDate.getUTCMinutes(), anchorDate.getUTCSeconds(), anchorDate.getUTCMilliseconds()));
 }
 
 function recurrenceMonths(recurrence: Subscription['recurrence']) {
@@ -35,22 +35,22 @@ export class SubscriptionChargesMaterializerService implements OnApplicationBoot
   }
 
   desiredChargeDates(subscription: Subscription, reference = new Date()) {
-    const next = subscription.nextChargeDate;
-    if (!subscription.autoRenew) return [next];
+    const anchor = subscription.recurrenceAnchorDate;
+    if (!subscription.autoRenew) return [anchor];
     const monthStart = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), 1));
     const horizonEnd = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth() + 14, 1));
     const step = recurrenceMonths(subscription.recurrence);
     const dates: Date[] = [];
     if (!step) return dates;
     let offset = 0;
-    let date = next;
-    while (date < monthStart) { offset += step; date = addMonthsPreservingDay(next, offset); }
-    while (date < horizonEnd) { dates.push(date); offset += step; date = addMonthsPreservingDay(next, offset); }
+    let date = anchor;
+    while (date < monthStart) { offset += step; date = getRecurringDate(anchor, offset); }
+    while (date < horizonEnd) { dates.push(date); offset += step; date = getRecurringDate(anchor, offset); }
     return dates;
   }
 
   async materializeSubscription(subscription: Subscription, reference = new Date(), db: Db = this.prisma) {
-    if (!subscription.isActive) return this.refreshNextCharge(subscription.id, reference, db);
+    if (!subscription.isActive) return subscription;
     const nowDay = utcDayStart(reference);
     const dates = this.desiredChargeDates(subscription, reference);
     const desired = new Set(dates.map((date) => date.toISOString()));
@@ -82,7 +82,7 @@ export class SubscriptionChargesMaterializerService implements OnApplicationBoot
   async refreshNextCharge(subscriptionId: string, reference = new Date(), db: Db = this.prisma) {
     const subscription = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId } });
     const next = await db.subscriptionCharge.findFirst({ where: { subscriptionId, status: 'pending' }, orderBy: [{ chargeDate: 'asc' }, { id: 'asc' }], select: { chargeDate: true } });
-    const isActive = subscription.autoRenew || !!next;
+    const isActive = subscription.isActive && (subscription.autoRenew || !!next);
     return db.subscription.update({ where: { id: subscriptionId }, data: { nextChargeDate: next?.chargeDate ?? subscription.nextChargeDate, isActive } });
   }
 
