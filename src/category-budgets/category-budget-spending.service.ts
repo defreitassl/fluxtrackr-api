@@ -137,7 +137,7 @@ export class CategoryBudgetSpendingService {
   async getBudgetSummary(userId: string, year: number, month: number, asOf: Date) {
     const [budgets, spending] = await Promise.all([
       this.prisma.categoryBudget.findMany({
-        where: { userId, year, month, isActive: true },
+        where: { userId, year, month, isActive: true, category: { is: { isActive: true } } },
         select: { categoryId: true, limitAmount: true, warningPercentage: true },
       }),
       this.getSpendingByCategory(userId, year, month, asOf),

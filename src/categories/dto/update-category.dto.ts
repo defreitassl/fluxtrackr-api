@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 import { CategoryTypeDto } from './create-category.dto';
 
 export class UpdateCategoryDto {
@@ -10,5 +10,8 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsEnum(CategoryTypeDto)
   type?: CategoryTypeDto;
-}
 
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}

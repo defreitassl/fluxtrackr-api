@@ -549,3 +549,4 @@ model AccountBalanceAdjustment {
   @@index([userId, occurredAt])
   @@index([accountId, occurredAt])
 }
+  isActive  Boolean      @default(true)

@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { ListCategoriesDto } from './dto/list-categories.dto';
 
 @Injectable()
 export class CategoriesService {
@@ -27,9 +28,9 @@ export class CategoriesService {
     }
   }
 
-  findMany(userId: string) {
+  findMany(userId: string, query: ListCategoriesDto = {}) {
     return this.prisma.category.findMany({
-      where: { userId },
+      where: { userId, isActive: query.isActive ?? true, type: query.type },
       orderBy: { name: 'asc' },
     });
   }
@@ -46,25 +47,55 @@ export class CategoriesService {
     return category;
   }
 
-  async update(userId: string, id: string, updateCategoryDto: UpdateCategoryDto) {
-    await this.findOne(userId, id);
-
-    try {
-      return await this.prisma.category.update({
-        where: { id },
-        data: updateCategoryDto,
-      });
-    } catch (error) {
-      this.handleUniqueNameError(error);
-      throw error;
-    }
+  update(userId: string, id: string, dto: UpdateCategoryDto) {
+    return this.runSerializableTransaction(async (tx) => {
+      const current = await tx.category.findFirst({ where: { id, userId } });
+      if (!current) throw new NotFoundException('Category not found');
+      const nextType = dto.type ?? current.type;
+      const changesToIncome = nextType === 'income' && current.type !== 'income';
+      if (changesToIncome) {
+        const activeBudget = await tx.categoryBudget.findFirst({ where: { categoryId: id, userId, isActive: true }, select: { id: true } });
+        if (activeBudget) throw new ConflictException('Category with active budgets cannot be changed to income');
+      }
+      if (dto.isActive === false) return this.archive(tx, id);
+      try {
+        return await tx.category.update({
+          where: { id },
+          data: { name: dto.name, type: dto.type, isActive: dto.isActive },
+        });
+      } catch (error) {
+        this.handleUniqueNameError(error);
+        throw error;
+      }
+    });
   }
 
-  async remove(userId: string, id: string) {
-    await this.findOne(userId, id);
-    await this.prisma.category.delete({ where: { id } });
+  remove(userId: string, id: string) {
+    return this.runSerializableTransaction(async (tx) => {
+      const category = await tx.category.findFirst({ where: { id, userId }, select: { id: true } });
+      if (!category) throw new NotFoundException('Category not found');
+      return this.archive(tx, id);
+    });
+  }
 
-    return { deleted: true };
+  private async archive(tx: Prisma.TransactionClient, id: string) {
+    await tx.category.update({ where: { id }, data: { isActive: false } });
+    await tx.categoryBudget.updateMany({ where: { categoryId: id, isActive: true }, data: { isActive: false } });
+    return { archived: true };
+  }
+
+  private async runSerializableTransaction<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try { return await this.prisma.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }); }
+      catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+          if (attempt < 3) continue;
+          throw new ConflictException('Category update conflict');
+        }
+        throw error;
+      }
+    }
+    throw new ConflictException('Category update conflict');
   }
 
   private handleUniqueNameError(error: unknown) {
@@ -76,4 +107,3 @@ export class CategoriesService {
     }
   }
 }
-

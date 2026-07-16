@@ -56,7 +56,9 @@ export class CategoryBudgetsService {
     const current = await this.prisma.categoryBudget.findFirst({ where: { id, userId } });
     if (!current) throw new NotFoundException('Category budget not found');
     const categoryId = dto.categoryId ?? current.categoryId;
-    await this.ensureCategory(userId, categoryId);
+    const isActive = dto.isActive ?? current.isActive;
+    if (isActive) await this.ensureCategory(userId, categoryId);
+    else await this.ensureCategoryOwnership(userId, categoryId);
     try {
       const budget = await this.prisma.categoryBudget.update({
         where: { id },
@@ -66,7 +68,7 @@ export class CategoryBudgetsService {
           month: dto.month ?? current.month,
           limitAmount: dto.limitAmount === undefined ? current.limitAmount : this.parseLimit(dto.limitAmount),
           warningPercentage: dto.warningPercentage ?? current.warningPercentage,
-          isActive: dto.isActive ?? current.isActive,
+          isActive,
         },
         include: { category: true },
       });
@@ -87,7 +89,7 @@ export class CategoryBudgetsService {
     const asOf = query.asOf ? new Date(query.asOf) : new Date();
     if (Number.isNaN(asOf.getTime())) throw new BadRequestException('asOf must be a valid ISO date');
     const budgets = await this.prisma.categoryBudget.findMany({
-      where: { userId, year: query.year, month: query.month, isActive: true },
+      where: { userId, year: query.year, month: query.month, isActive: true, category: { is: { isActive: true } } },
       include: { category: true },
       orderBy: [{ category: { name: 'asc' } }, { id: 'asc' }],
     });
@@ -122,8 +124,15 @@ export class CategoryBudgetsService {
 
   private async ensureCategory(userId: string, categoryId: string) {
     const category = await this.prisma.category.findFirst({
-      where: { id: categoryId, userId, type: { in: ['expense', 'both'] } },
+      where: { id: categoryId, userId, isActive: true, type: { in: ['expense', 'both'] } },
       select: { id: true },
+    });
+    if (!category) throw new BadRequestException('Invalid categoryId');
+  }
+
+  private async ensureCategoryOwnership(userId: string, categoryId: string) {
+    const category = await this.prisma.category.findFirst({
+      where: { id: categoryId, userId }, select: { id: true },
     });
     if (!category) throw new BadRequestException('Invalid categoryId');
   }

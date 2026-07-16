@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { AuthenticatedRequest } from '../common/types/authenticated-request';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { ListCategoriesDto } from './dto/list-categories.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('categories')
@@ -30,8 +32,8 @@ export class CategoriesController {
   }
 
   @Get()
-  findMany(@Req() request: AuthenticatedRequest) {
-    return this.categoriesService.findMany(request.user.id);
+  findMany(@Req() request: AuthenticatedRequest, @Query() query: ListCategoriesDto) {
+    return this.categoriesService.findMany(request.user.id, query);
   }
 
   @Get(':id')
@@ -63,4 +65,3 @@ export class CategoriesController {
     return this.categoriesService.remove(request.user.id, id);
   }
 }
-
