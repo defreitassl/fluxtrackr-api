@@ -22,6 +22,7 @@ import { MonthlySummaryModule } from './monthly-summary/monthly-summary.module';
 import { TransactionsModule } from './transactions/transactions.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { SubscriptionChargesModule } from './subscription-charges/subscription-charges.module';
+import { FinancialGoalsModule } from './financial-goals/financial-goals.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { SubscriptionChargesModule } from './subscription-charges/subscription-c
     MonthlySummaryModule,
     SubscriptionsModule,
     SubscriptionChargesModule,
+    FinancialGoalsModule,
   ],
 })
 export class AppModule {}

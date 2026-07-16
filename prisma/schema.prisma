@@ -87,6 +87,17 @@ enum SubscriptionChargeStatus {
   canceled
 }
 
+enum FinancialGoalStatus {
+  active
+  completed
+  canceled
+}
+
+enum GoalContributionType {
+  contribution
+  withdrawal
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -111,6 +122,8 @@ model User {
   accountTransfers    AccountTransfer[]
   balanceAdjustments  AccountBalanceAdjustment[]
   categoryBudgets     CategoryBudget[]
+  financialGoals      FinancialGoal[]
+  goalContributions   GoalContribution[]
 }
 
 model Category {
@@ -118,6 +131,7 @@ model Category {
   userId    String
   name      String
   type      CategoryType
+  isActive  Boolean      @default(true)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -135,6 +149,43 @@ model Category {
 
   @@unique([userId, name])
   @@index([userId])
+}
+
+model FinancialGoal {
+  id           String              @id @default(uuid())
+  userId       String
+  name         String
+  description  String?
+  targetAmount Decimal             @db.Decimal(12, 2)
+  targetDate   DateTime?
+  status       FinancialGoalStatus @default(active)
+  completedAt  DateTime?
+  canceledAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions GoalContribution[]
+
+  @@index([userId, status])
+  @@index([userId, targetDate])
+}
+
+model GoalContribution {
+  id         String               @id @default(uuid())
+  userId     String
+  goalId     String
+  type       GoalContributionType
+  amount     Decimal              @db.Decimal(12, 2)
+  note       String?
+  occurredAt DateTime
+  createdAt  DateTime             @default(now())
+
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal FinancialGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
+  @@index([goalId, occurredAt])
 }
 
 model Transaction {
@@ -549,4 +600,3 @@ model AccountBalanceAdjustment {
   @@index([userId, occurredAt])
   @@index([accountId, occurredAt])
 }
-  isActive  Boolean      @default(true)

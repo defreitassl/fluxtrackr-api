@@ -68,6 +68,7 @@ npm run build
 - `GET /dashboard-overview`
 - `POST/GET/PATCH/DELETE /category-budgets`, `GET /category-budgets/overview`
 - `GET/POST/PATCH/DELETE /categories`
+- `POST/GET/PATCH/DELETE /financial-goals`, `GET /financial-goals/overview` e `POST/GET /financial-goals/:id/contributions`
 - `GET/POST/PATCH/DELETE /fixed-expenses`
 - `GET/POST/PATCH/DELETE /fixed-incomes`
 - `GET /fixed-occurrences`, `GET /fixed-occurrences/:id`, `POST /fixed-occurrences/:id/realize` e `POST /fixed-occurrences/:id/cancel`
@@ -182,6 +183,18 @@ O saldo usa `initialBalance + receitas - despesas + recebidas - enviadas + ajust
 `GET /category-budgets/overview?year=2026&month=7&asOf=` retorna gasto em conta e cartão, restante, percentual e status `within_budget`, `near_limit` ou `exceeded`, sempre como strings monetárias com duas casas. Para conta, entram somente `Transaction` de despesa da categoria até o período UTC realizado e pagamentos de fatura são excluídos. Para cartão, cada parcela não cancelada entra pelo mês/ano da fatura, inclusive faturas pagas; compras parceladas contam somente pelo valor da parcela e pagamento da fatura não conta novamente.
 
 `GET /dashboard-overview` inclui somente `budgetSummary` do mês UTC de `asOf`; saldo, comprometido, disponível para gastar e meta diária não mudam.
+
+## Ciclo de vida de categorias
+
+Categorias são arquiváveis. `DELETE /categories/:id` e `PATCH` com `isActive:false` definem `Category.isActive:false` e arquivam, na mesma transação, todos os `CategoryBudget` ativos associados. Não há exclusão física e histórico financeiro permanece consultável. `GET /categories` retorna somente ativas por padrão; aceita `isActive` e `type`. Uma categoria com orçamento ativo não pode mudar para `income`. Orçamento ativo exige categoria ativa que aceite despesas; overview de orçamentos e `budgetSummary` ignoram tanto orçamento quanto categoria arquivados.
+
+## Metas financeiras
+
+Meta financeira é objetivo analítico de médio ou longo prazo. Aporte é valor que usuário considera destinado à meta. Aporte não movimenta conta bancária, não cria `Transaction`, não altera saldo, comprometido, orçamento, previsão, Dashboard ou Timeline.
+
+`FinancialGoal` persiste alvo e status; `GoalContribution` persiste somente aportes e retiradas. Progresso é sempre derivado com `Prisma.Decimal`: `contribution - withdrawal`; restante é `max(alvo - atual, 0)` e percentual é `min(atual / alvo * 100, 100)`. Criação, atualização, cancelamento e aportes usam transação `Serializable` com retry de `P2034`. Metas canceladas não aceitam movimentações; conclusão é automática e retirada pode reabrir meta.
+
+Rotas JWT: `POST/GET/PATCH/DELETE /financial-goals`, `GET /financial-goals/overview`, `POST /financial-goals/:id/contributions` e `GET /financial-goals/:id/contributions`. Integração mobile, notificações e atividades permanecem futuras.
 
 Validacao completa:
 
