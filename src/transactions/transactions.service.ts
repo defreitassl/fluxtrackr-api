@@ -5,13 +5,14 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityService } from '../activities/activity.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { ListTransactionsDto } from './dto/list-transactions.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly activities: ActivityService) {}
 
   async create(userId: string, createTransactionDto: CreateTransactionDto) {
     await this.ensureCategoryBelongsToUser(
@@ -20,8 +21,9 @@ export class TransactionsService {
     );
     await this.ensureAccountBelongsToUser(userId, createTransactionDto.accountId);
 
-    return this.prisma.transaction.create({
-      data: {
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.create({
+        data: {
         userId,
         type: createTransactionDto.type,
         amount: createTransactionDto.amount,
@@ -33,7 +35,14 @@ export class TransactionsService {
           ? new Date(createTransactionDto.occurredAt)
           : new Date(),
         source: createTransactionDto.source,
-      },
+        },
+      });
+      await this.activities.record(tx, {
+        userId, type: 'transaction_created', entityType: 'transaction', entityId: transaction.id,
+        title: 'Transação criada', description: transaction.description,
+        metadata: { amount: transaction.amount.toFixed(2), transactionType: transaction.type }, occurredAt: transaction.occurredAt,
+      });
+      return transaction;
     });
   }
 
@@ -88,9 +97,10 @@ export class TransactionsService {
       updateTransactionDto.accountId,
     );
 
-    return this.prisma.transaction.update({
-      where: { id },
-      data: {
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.update({
+        where: { id },
+        data: {
         type: updateTransactionDto.type,
         amount: updateTransactionDto.amount,
         description: updateTransactionDto.description,
@@ -110,13 +120,27 @@ export class TransactionsService {
           ? new Date(updateTransactionDto.occurredAt)
           : undefined,
         source: updateTransactionDto.source,
-      },
+        },
+      });
+      await this.activities.record(tx, {
+        userId, type: 'transaction_updated', entityType: 'transaction', entityId: transaction.id,
+        title: 'Transação atualizada', description: transaction.description,
+        metadata: { amount: transaction.amount.toFixed(2), transactionType: transaction.type }, occurredAt: transaction.occurredAt,
+      });
+      return transaction;
     });
   }
 
   async remove(userId: string, id: string) {
-    await this.findOne(userId, id);
-    await this.prisma.transaction.delete({ where: { id } });
+    const current = await this.findOne(userId, id);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.transaction.delete({ where: { id } });
+      await this.activities.record(tx, {
+        userId, type: 'transaction_deleted', entityType: 'transaction', entityId: id,
+        title: 'Transação removida', description: current.description,
+        metadata: { amount: current.amount.toFixed(2), transactionType: current.type }, occurredAt: new Date(),
+      });
+    });
 
     return { deleted: true };
   }

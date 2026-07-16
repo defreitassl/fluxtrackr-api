@@ -194,7 +194,13 @@ Meta financeira é objetivo analítico de médio ou longo prazo. Aporte é valor
 
 `FinancialGoal` persiste alvo e status; `GoalContribution` persiste somente aportes e retiradas. Progresso é sempre derivado com `Prisma.Decimal`: `contribution - withdrawal`; restante é `max(alvo - atual, 0)` e percentual é `min(atual / alvo * 100, 100)`. Criação, atualização, cancelamento e aportes usam transação `Serializable` com retry de `P2034`. Metas canceladas não aceitam movimentações; conclusão é automática e retirada pode reabrir meta.
 
-Rotas JWT: `POST/GET/PATCH/DELETE /financial-goals`, `GET /financial-goals/overview`, `POST /financial-goals/:id/contributions` e `GET /financial-goals/:id/contributions`. Integração mobile, notificações e atividades permanecem futuras.
+Rotas JWT: `POST/GET/PATCH/DELETE /financial-goals`, `GET /financial-goals/overview`, `POST /financial-goals/:id/contributions` e `GET /financial-goals/:id/contributions`. O overview aceita `asOf` como corte de existência da meta, movimentações e ciclo de vida. Campos configuráveis, como nome e valor-alvo, não têm versionamento histórico neste MVP. O prazo é data-calendário UTC: vencer hoje não atrasa a meta; metas concluídas, canceladas ou sem prazo retornam campos de prazo nulos. Retiradas são validadas contra todo o histórico cronológico e não podem deixar saldo negativo em nenhum instante.
+
+## Notificações e atividades
+
+Notificação é um alerta persistido sobre uma condição financeira atual. Atividade é um registro persistido de uma ação realizada; não é movimentação financeira e nenhuma das duas entra na Timeline, saldo, previsão, comprometido ou orçamento.
+
+Rotas JWT: `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `POST /notifications/read-all`, `DELETE /notifications/:id`, `GET/PATCH /notification-preferences` e `GET /activities`. Notificações são somente in-app/API neste recorte: push nativo, e-mail, SMS, WebSocket e Telegram continuam fora do escopo. Preferências controlam novos alertas; alertas resolvidos e dispensados permanecem persistidos.
 
 Validacao completa:
 

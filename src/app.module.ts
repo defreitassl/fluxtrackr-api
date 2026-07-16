@@ -23,6 +23,9 @@ import { TransactionsModule } from './transactions/transactions.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { SubscriptionChargesModule } from './subscription-charges/subscription-charges.module';
 import { FinancialGoalsModule } from './financial-goals/financial-goals.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { NotificationPreferencesModule } from './notification-preferences/notification-preferences.module';
+import { ActivitiesModule } from './activities/activities.module';
 
 @Module({
   imports: [
@@ -50,6 +53,9 @@ import { FinancialGoalsModule } from './financial-goals/financial-goals.module';
     SubscriptionsModule,
     SubscriptionChargesModule,
     FinancialGoalsModule,
+    NotificationPreferencesModule,
+    NotificationsModule,
+    ActivitiesModule,
   ],
 })
 export class AppModule {}

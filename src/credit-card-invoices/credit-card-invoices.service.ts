@@ -9,10 +9,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { calculateCreditCardInvoiceTotal } from './credit-card-invoice-total';
 import { ListCreditCardInvoicesDto } from './dto/list-credit-card-invoices.dto';
 import { PayCreditCardInvoiceDto } from './dto/pay-credit-card-invoice.dto';
+import { ActivityService } from '../activities/activity.service';
+import { NotificationEvaluatorService } from '../notifications/notification-evaluator.service';
 
 @Injectable()
 export class CreditCardInvoicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly activities?: ActivityService, private readonly notifications?: NotificationEvaluatorService) {}
 
   async findMany(userId: string, query: ListCreditCardInvoicesDto) {
     const invoices = await this.prisma.creditCardInvoice.findMany({
@@ -47,7 +49,7 @@ export class CreditCardInvoicesService {
   }
 
   async pay(userId: string, id: string, dto: PayCreditCardInvoiceDto) {
-    return this.runSerializableTransaction(async (tx) => {
+    const result = await this.runSerializableTransaction(async (tx) => {
       const invoice = await tx.creditCardInvoice.findFirst({
         where: { id, userId },
         include: {
@@ -107,6 +109,7 @@ export class CreditCardInvoicesService {
         where: { invoiceId: invoice.id, userId, status: 'pending' },
         data: { status: 'paid' },
       });
+      await this.activities?.record(tx, { userId, type: 'invoice_paid', entityType: 'credit_card_invoice', entityId: invoice.id, title: 'Fatura paga', description: `Fatura ${invoice.creditCard.name} de ${month}/${invoice.year}`, metadata: { amount: totalAmount.toFixed(2), accountId: account.id }, occurredAt: paidAt });
 
       const updatedInvoice = await tx.creditCardInvoice.findUniqueOrThrow({
         where: { id: invoice.id },
@@ -118,6 +121,8 @@ export class CreditCardInvoicesService {
       });
       return { ...updatedInvoice, totalAmount, transaction };
     });
+    await this.notifications?.evaluateInvoice(userId, id, new Date());
+    return result;
   }
 
   private async runSerializableTransaction<T>(

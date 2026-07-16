@@ -98,6 +98,84 @@ enum GoalContributionType {
   withdrawal
 }
 
+enum NotificationCategory {
+  invoices
+  events
+  subscriptions
+  budgets
+  goals
+}
+
+enum NotificationType {
+  invoice_due_soon
+  invoice_overdue
+  financial_event_upcoming
+  subscription_charge_upcoming
+  subscription_charge_overdue
+  budget_near_limit
+  budget_exceeded
+  goal_deadline_upcoming
+  goal_overdue
+}
+
+enum NotificationSeverity {
+  info
+  warning
+  critical
+}
+
+enum NotificationSourceType {
+  credit_card_invoice
+  financial_event
+  subscription_charge
+  category_budget
+  financial_goal
+}
+
+enum ActivityType {
+  transaction_created
+  transaction_updated
+  transaction_deleted
+  transfer_created
+  balance_adjustment_created
+  invoice_paid
+  financial_event_confirmed
+  financial_event_realized
+  financial_event_postponed
+  financial_event_canceled
+  subscription_created
+  subscription_updated
+  subscription_archived
+  subscription_charge_realized
+  subscription_charge_canceled
+  category_archived
+  category_reactivated
+  category_budget_created
+  category_budget_updated
+  category_budget_archived
+  financial_goal_created
+  financial_goal_updated
+  financial_goal_completed
+  financial_goal_reopened
+  financial_goal_canceled
+  goal_contribution_added
+  goal_withdrawal_added
+}
+
+enum ActivityEntityType {
+  transaction
+  account_transfer
+  account_balance_adjustment
+  credit_card_invoice
+  financial_event
+  subscription
+  subscription_charge
+  category
+  category_budget
+  financial_goal
+  goal_contribution
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -124,6 +202,70 @@ model User {
   categoryBudgets     CategoryBudget[]
   financialGoals      FinancialGoal[]
   goalContributions   GoalContribution[]
+  notifications       Notification[]
+  notificationPreferences NotificationPreference[]
+  activities          Activity[]
+}
+
+model Notification {
+  id           String                 @id @default(uuid())
+  userId       String
+  category     NotificationCategory
+  type         NotificationType
+  severity     NotificationSeverity
+  title        String
+  message      String
+  sourceType   NotificationSourceType
+  sourceId     String
+  dedupeKey    String
+  scheduledFor DateTime?
+  readAt       DateTime?
+  dismissedAt  DateTime?
+  resolvedAt   DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@index([userId, resolvedAt])
+  @@index([sourceType, sourceId])
+}
+
+model NotificationPreference {
+  id        String               @id @default(uuid())
+  userId    String
+  category  NotificationCategory
+  enabled   Boolean              @default(true)
+  leadDays  Int?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([userId])
+}
+
+model Activity {
+  id          String             @id @default(uuid())
+  userId      String
+  type        ActivityType
+  entityType  ActivityEntityType
+  entityId    String
+  title       String
+  description String?
+  metadata    Json?
+  occurredAt  DateTime
+  createdAt   DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
+  @@index([userId, type, occurredAt])
+  @@index([entityType, entityId])
 }
 
 model Category {

@@ -7,12 +7,13 @@ import { GetFinancialGoalsOverviewDto } from './dto/get-financial-goals-overview
 import { ListFinancialGoalsDto, ListGoalContributionsDto } from './dto/list-financial-goals.dto';
 import { UpdateFinancialGoalDto } from './dto/update-financial-goal.dto';
 import { FinancialGoalProgressService } from './financial-goal-progress.service';
+import { ActivityService } from '../activities/activity.service';
 
 const zero = () => new Prisma.Decimal(0);
 
 @Injectable()
 export class FinancialGoalsService {
-  constructor(private readonly prisma: PrismaService, private readonly progress: FinancialGoalProgressService) {}
+  constructor(private readonly prisma: PrismaService, private readonly progress: FinancialGoalProgressService, private readonly activities: ActivityService) {}
 
   create(userId: string, dto: CreateFinancialGoalDto) {
     return this.runSerializableTransaction(async (tx) => {
@@ -22,6 +23,8 @@ export class FinancialGoalsService {
       const initial = dto.initialAmount === undefined ? zero() : new Prisma.Decimal(dto.initialAmount);
       if (initial.greaterThan(0)) await tx.goalContribution.create({ data: { userId, goalId: goal.id, type: 'contribution', amount: initial, occurredAt: now, note: null } });
       const updated = await this.progress.reconcileGoalStatus(tx, goal, initial, now);
+      await this.activities.record(tx, { userId, type: 'financial_goal_created', entityType: 'financial_goal', entityId: goal.id, title: 'Meta financeira criada', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
+      if (updated.status === 'completed') await this.activities.record(tx, { userId, type: 'financial_goal_completed', entityType: 'financial_goal', entityId: goal.id, title: 'Meta financeira concluída', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
       return this.serialize(updated, initial, now);
     });
   }
@@ -76,6 +79,9 @@ export class FinancialGoalsService {
       } });
       if (!cancel) goal = await this.progress.reconcileGoalStatus(tx, goal, undefined, now);
       const amount = (await this.progress.getGoalProgress(tx, goal)).currentAmount;
+      await this.activities.record(tx, { userId, type: cancel ? 'financial_goal_canceled' : 'financial_goal_updated', entityType: 'financial_goal', entityId: goal.id, title: cancel ? 'Meta financeira cancelada' : 'Meta financeira atualizada', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
+      if (reactivate || (!cancel && current.status === 'completed' && goal.status === 'active')) await this.activities.record(tx, { userId, type: 'financial_goal_reopened', entityType: 'financial_goal', entityId: goal.id, title: 'Meta financeira reaberta', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
+      if (!cancel && current.status !== 'completed' && goal.status === 'completed') await this.activities.record(tx, { userId, type: 'financial_goal_completed', entityType: 'financial_goal', entityId: goal.id, title: 'Meta financeira concluída', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
       return this.serialize(goal, amount, now);
     });
   }
@@ -83,7 +89,11 @@ export class FinancialGoalsService {
   remove(userId: string, id: string) {
     return this.runSerializableTransaction(async (tx) => {
       const goal = await this.requireGoal(tx, userId, id);
-      if (goal.status !== 'canceled') await tx.financialGoal.update({ where: { id }, data: { status: 'canceled', canceledAt: new Date(), completedAt: null } });
+      if (goal.status !== 'canceled') {
+        const now = new Date();
+        await tx.financialGoal.update({ where: { id }, data: { status: 'canceled', canceledAt: now, completedAt: null } });
+        await this.activities.record(tx, { userId, type: 'financial_goal_canceled', entityType: 'financial_goal', entityId: id, title: 'Meta financeira cancelada', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
+      }
       return { canceled: true };
     });
   }
@@ -100,7 +110,10 @@ export class FinancialGoalsService {
       if (dto.type === 'withdrawal') await this.assertWithdrawalKeepsHistoricalBalance(tx, goalId, amount, occurredAt);
       const contribution = await tx.goalContribution.create({ data: { userId, goalId, type: dto.type, amount, occurredAt, note: dto.note ?? null } });
       const current = dto.type === 'contribution' ? before.currentAmount.plus(amount) : before.currentAmount.minus(amount);
-      await this.progress.reconcileGoalStatus(tx, goal, current, now);
+      const updated = await this.progress.reconcileGoalStatus(tx, goal, current, now);
+      await this.activities.record(tx, { userId, type: dto.type === 'contribution' ? 'goal_contribution_added' : 'goal_withdrawal_added', entityType: 'goal_contribution', entityId: contribution.id, title: dto.type === 'contribution' ? 'Aporte realizado' : 'Retirada realizada', description: goal.name, metadata: { amount: amount.toFixed(2), goalId }, occurredAt });
+      if (goal.status !== updated.status && updated.status === 'completed') await this.activities.record(tx, { userId, type: 'financial_goal_completed', entityType: 'financial_goal', entityId: goalId, title: 'Meta financeira concluída', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
+      if (goal.status === 'completed' && updated.status === 'active') await this.activities.record(tx, { userId, type: 'financial_goal_reopened', entityType: 'financial_goal', entityId: goalId, title: 'Meta financeira reaberta', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
       return this.serializeContribution(contribution);
     });
   }
