@@ -79,15 +79,19 @@ export class FinancialGoalProgressService {
   }
 
   serialize(goal: FinancialGoal, progress: GoalProgress, asOf: Date) {
+    const effectiveStatus = this.effectiveStatus(goal, progress, asOf);
     const targetDate = goal.targetDate?.toISOString() ?? null;
-    const isOverdue = goal.status === 'active' && !!goal.targetDate && goal.targetDate.getTime() < asOf.getTime();
-    const deadline = this.deadline(goal, progress, asOf, isOverdue);
+    const isOverdue = effectiveStatus === 'active' && !!goal.targetDate
+      && this.utcDay(goal.targetDate).getTime() < this.utcDay(asOf).getTime();
+    const deadline = this.deadline(goal, progress, asOf, isOverdue, effectiveStatus);
     return {
       id: goal.id, name: goal.name, description: goal.description,
       targetAmount: goal.targetAmount.toFixed(2), currentAmount: progress.currentAmount.toFixed(2),
       remainingAmount: progress.remainingAmount.toFixed(2), progressPercentage: progress.progressPercentage.toFixed(2),
-      targetDate, status: goal.status, completedAt: goal.completedAt?.toISOString() ?? null,
-      canceledAt: goal.canceledAt?.toISOString() ?? null, isOverdue,
+      targetDate, status: effectiveStatus,
+      completedAt: effectiveStatus === 'completed' && goal.completedAt && goal.completedAt <= asOf ? goal.completedAt.toISOString() : null,
+      canceledAt: effectiveStatus === 'canceled' && goal.canceledAt && goal.canceledAt <= asOf ? goal.canceledAt.toISOString() : null,
+      isOverdue,
       ...deadline,
       targetDecimal: goal.targetAmount, currentDecimal: progress.currentAmount,
       remainingDecimal: progress.remainingAmount, progressDecimal: progress.progressPercentage,
@@ -95,23 +99,33 @@ export class FinancialGoalProgressService {
   }
 
   private calculate(targetAmount: Prisma.Decimal, currentAmount: Prisma.Decimal): GoalProgress {
-    const current = currentAmount.lessThan(0) ? zero() : currentAmount;
     return {
-      currentAmount: current,
-      remainingAmount: Prisma.Decimal.max(targetAmount.minus(current), zero()),
-      progressPercentage: Prisma.Decimal.min(current.dividedBy(targetAmount).times(100), new Prisma.Decimal(100)),
+      currentAmount,
+      remainingAmount: Prisma.Decimal.max(targetAmount.minus(currentAmount), zero()),
+      progressPercentage: Prisma.Decimal.min(currentAmount.dividedBy(targetAmount).times(100), new Prisma.Decimal(100)),
     };
   }
 
-  private deadline(goal: FinancialGoal, progress: GoalProgress, asOf: Date, isOverdue: boolean) {
-    if (!goal.targetDate) return {};
-    const daysRemaining = isOverdue ? 0 : Math.max(0, Math.ceil((Date.UTC(goal.targetDate.getUTCFullYear(), goal.targetDate.getUTCMonth(), goal.targetDate.getUTCDate()) - Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate())) / 86_400_000));
+  private effectiveStatus(goal: FinancialGoal, progress: GoalProgress, asOf: Date) {
+    if (goal.canceledAt && goal.canceledAt <= asOf) return 'canceled' as const;
+    return progress.currentAmount.greaterThanOrEqualTo(goal.targetAmount) ? 'completed' as const : 'active' as const;
+  }
+
+  private deadline(goal: FinancialGoal, progress: GoalProgress, asOf: Date, isOverdue: boolean, status: 'active' | 'completed' | 'canceled') {
+    if (status !== 'active' || !goal.targetDate) {
+      return { daysRemaining: null, monthsRemaining: null, requiredMonthlyContribution: null };
+    }
+    const targetDay = this.utcDay(goal.targetDate);
+    const currentDay = this.utcDay(asOf);
+    const daysRemaining = isOverdue ? 0 : Math.max(0, Math.round((targetDay.getTime() - currentDay.getTime()) / 86_400_000));
     const monthsRemaining = isOverdue ? null : Math.max(1, (goal.targetDate.getUTCFullYear() - asOf.getUTCFullYear()) * 12 + goal.targetDate.getUTCMonth() - asOf.getUTCMonth() + 1);
     return {
       daysRemaining,
       monthsRemaining,
-      requiredMonthlyContribution: goal.status === 'active' && !isOverdue && progress.remainingAmount.greaterThan(0) && monthsRemaining
+      requiredMonthlyContribution: !isOverdue && progress.remainingAmount.greaterThan(0) && monthsRemaining
         ? progress.remainingAmount.dividedBy(monthsRemaining).toFixed(2) : null,
     };
   }
+
+  private utcDay(value: Date) { return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate())); }
 }

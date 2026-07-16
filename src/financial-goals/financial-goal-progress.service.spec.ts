@@ -53,4 +53,38 @@ describe('FinancialGoalProgressService', () => {
     assert.equal(result.goals[0].daysRemaining, 0);
     assert.equal(result.goals[0].requiredMonthlyContribution, null);
   });
+
+  it('uses asOf for lifecycle and progress without mutating persisted status', () => {
+    const service = new FinancialGoalProgressService();
+    const asOf = new Date('2026-07-15T18:00:00.000Z');
+    const laterCancellation = goal({ status: FinancialGoalStatus.canceled, canceledAt: new Date('2026-07-16T00:00:00.000Z') });
+    const historical = service.buildGoalOverview([laterCancellation] as any, new Map([
+      ['goal', { currentAmount: decimal('40'), remainingAmount: decimal('60'), progressPercentage: decimal('40') }],
+    ]), asOf);
+    assert.equal(historical.goals[0].status, 'active');
+    assert.equal(historical.goals[0].canceledAt, null);
+    assert.equal(laterCancellation.status, FinancialGoalStatus.canceled);
+
+    const currentlyCompleted = goal({ status: FinancialGoalStatus.completed, completedAt: new Date('2026-07-20T00:00:00.000Z') });
+    const incomplete = service.buildGoalOverview([currentlyCompleted] as any, new Map([
+      ['goal', { currentAmount: decimal('99'), remainingAmount: decimal('1'), progressPercentage: decimal('99') }],
+    ]), asOf);
+    assert.equal(incomplete.goals[0].status, 'active');
+    assert.equal(incomplete.goals[0].completedAt, null);
+  });
+
+  it('uses UTC calendar days and does not hide a negative historical balance', () => {
+    const service = new FinancialGoalProgressService();
+    const today = goal({ targetDate: new Date('2026-07-15T23:59:59.999Z') });
+    const result: any = service.buildGoalOverview([today] as any, new Map([
+      ['goal', { currentAmount: decimal('10'), remainingAmount: decimal('90'), progressPercentage: decimal('10') }],
+    ]), new Date('2026-07-15T00:00:00.000Z'));
+    assert.equal(result.goals[0].isOverdue, false);
+    assert.equal(result.goals[0].daysRemaining, 0);
+
+    const invalid = service.buildGoalOverview([goal()] as any, new Map([
+      ['goal', { currentAmount: decimal('-1'), remainingAmount: decimal('101'), progressPercentage: decimal('-1') }],
+    ]), new Date('2026-07-15T00:00:00.000Z'));
+    assert.equal(invalid.goals[0].currentAmount, '-1.00');
+  });
 });

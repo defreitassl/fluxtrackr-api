@@ -62,7 +62,9 @@ export class FinancialGoalsService {
       const targetAmount = dto.targetAmount === undefined ? current.targetAmount : this.money(dto.targetAmount, 'targetAmount');
       const targetDate = dto.targetDate === undefined ? current.targetDate : dto.targetDate === null ? null : this.validDate(dto.targetDate, 'targetDate');
       this.validateName(dto.name ?? current.name);
-      if ((dto.status ?? current.status) === 'active' && targetDate && targetDate.getTime() < now.getTime()) throw new BadRequestException('targetDate cannot be in the past for an active goal');
+      if (dto.targetDate !== undefined && targetDate && this.utcDay(targetDate).getTime() < this.utcDay(now).getTime()) {
+        throw new BadRequestException('targetDate cannot be in the past');
+      }
       const cancel = dto.status === 'canceled';
       const reactivate = dto.status === 'active' && current.status === 'canceled';
       let goal = await tx.financialGoal.update({ where: { id }, data: {
@@ -95,7 +97,7 @@ export class FinancialGoalsService {
       const now = new Date();
       if (occurredAt.getTime() > now.getTime()) throw new BadRequestException('occurredAt cannot be in the future');
       const before = await this.progress.getGoalProgress(tx, goal);
-      if (dto.type === 'withdrawal' && amount.greaterThan(before.currentAmount)) throw new BadRequestException('Withdrawal cannot make goal progress negative');
+      if (dto.type === 'withdrawal') await this.assertWithdrawalKeepsHistoricalBalance(tx, goalId, amount, occurredAt);
       const contribution = await tx.goalContribution.create({ data: { userId, goalId, type: dto.type, amount, occurredAt, note: dto.note ?? null } });
       const current = dto.type === 'contribution' ? before.currentAmount.plus(amount) : before.currentAmount.minus(amount);
       await this.progress.reconcileGoalStatus(tx, goal, current, now);
@@ -115,7 +117,7 @@ export class FinancialGoalsService {
 
   async overview(userId: string, dto: GetFinancialGoalsOverviewDto) {
     const asOf = dto.asOf ? this.validDate(dto.asOf, 'asOf') : new Date();
-    const goals = await this.prisma.financialGoal.findMany({ where: { userId } });
+    const goals = await this.prisma.financialGoal.findMany({ where: { userId, createdAt: { lte: asOf } } });
     const progress = await this.progress.getGoalsProgress(this.prisma, goals, asOf);
     return this.progress.buildGoalOverview(goals, progress, asOf);
   }
@@ -130,7 +132,7 @@ export class FinancialGoalsService {
     this.validateName(dto.name);
     const targetAmount = this.money(dto.targetAmount, 'targetAmount');
     const targetDate = dto.targetDate ? this.validDate(dto.targetDate, 'targetDate') : null;
-    if (targetDate && targetDate.getTime() < now.getTime()) throw new BadRequestException('targetDate cannot be in the past for an active goal');
+    if (targetDate && this.utcDay(targetDate).getTime() < this.utcDay(now).getTime()) throw new BadRequestException('targetDate cannot be in the past for an active goal');
     if (dto.initialAmount !== undefined && new Prisma.Decimal(dto.initialAmount).lessThan(0)) throw new BadRequestException('initialAmount must be zero or greater');
     return { name: dto.name.trim(), description: dto.description ?? null, targetAmount, targetDate };
   }
@@ -151,6 +153,23 @@ export class FinancialGoalsService {
   private validDate(value: string, field: string) { const date = new Date(value); if (Number.isNaN(date.getTime())) throw new BadRequestException(`${field} must be a valid ISO date`); return date; }
   private date(value: string, field: string) { return this.validDate(value, field); }
   private goalRank(goal: any, now: Date) { if (goal.status === 'active') return goal.isOverdue ? 0 : goal.targetDate ? 1 : 2; if (goal.status === 'completed') return 3; return 4; }
+
+  private async assertWithdrawalKeepsHistoricalBalance(tx: Prisma.TransactionClient, goalId: string, amount: Prisma.Decimal, occurredAt: Date) {
+    const movements = await tx.goalContribution.findMany({ where: { goalId }, select: { type: true, amount: true, occurredAt: true } });
+    const byInstant = new Map<number, Prisma.Decimal>();
+    for (const movement of movements) {
+      const value = movement.type === 'contribution' ? movement.amount : movement.amount.negated();
+      byInstant.set(movement.occurredAt.getTime(), (byInstant.get(movement.occurredAt.getTime()) ?? zero()).plus(value));
+    }
+    byInstant.set(occurredAt.getTime(), (byInstant.get(occurredAt.getTime()) ?? zero()).minus(amount));
+    let balance = zero();
+    for (const [, change] of [...byInstant.entries()].sort(([left], [right]) => left - right)) {
+      balance = balance.plus(change);
+      if (balance.lessThan(0)) throw new BadRequestException('Withdrawal would make historical goal balance negative');
+    }
+  }
+
+  private utcDay(value: Date) { return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate())); }
 
   private async runSerializableTransaction<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
