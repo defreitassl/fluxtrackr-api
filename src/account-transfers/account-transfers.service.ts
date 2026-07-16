@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountTransferDto } from './dto/create-account-transfer.dto';
@@ -8,6 +8,8 @@ import { ListAccountTransfersDto } from './dto/list-account-transfers.dto';
 export class AccountTransfersService {
   constructor(
     private readonly prisma: PrismaService,
+    @Optional()
+    @Inject('ACCOUNT_TRANSFERS_NOW')
     private readonly now: () => Date = () => new Date(),
   ) {}
 

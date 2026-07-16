@@ -65,8 +65,17 @@ function harness(options: Record<string, any> = {}) {
       return { items: options.timelineItems ?? [] };
     },
   };
+  const budgetSpending = {
+    getBudgetSummary: async (userId: string, year: number, month: number, budgetAsOf: Date) => {
+      calls.budgetSummary = { userId, year, month, asOf: budgetAsOf };
+      return options.budgetSummary ?? {
+        totalLimit: '0.00', totalSpent: '0.00', totalRemaining: '0.00', usagePercentage: '0.00',
+        budgetsCount: 0, withinBudgetCount: 0, nearLimitCount: 0, exceededCount: 0,
+      };
+    },
+  };
   return {
-    service: new DashboardOverviewService(prisma as any, forecast as any, timeline as any),
+    service: new DashboardOverviewService(prisma as any, forecast as any, timeline as any, budgetSpending as any),
     calls,
   };
 }
@@ -114,6 +123,17 @@ describe('dashboard balance and daily spending calculations', () => {
 });
 
 describe('DashboardOverviewService composition', () => {
+  it('reuses budget spending summary for asOf month without changing financial balance', async () => {
+    const context = harness({
+      budgetSummary: { totalLimit: '100.00', totalSpent: '80.00', totalRemaining: '20.00', usagePercentage: '80.00', budgetsCount: 1, withinBudgetCount: 0, nearLimitCount: 1, exceededCount: 0 },
+      currentBalance: '1000.00',
+    });
+    const result = await context.service.getOverview('owner', { asOf: asOf.toISOString() });
+    assert.deepEqual(context.calls.budgetSummary, { userId: 'owner', year: 2026, month: 7, asOf });
+    assert.deepEqual(result.budgetSummary, { totalLimit: '100.00', totalSpent: '80.00', totalRemaining: '20.00', nearLimitCount: 1, exceededCount: 0 });
+    assert.equal(result.balance.total, '1000.00');
+    assert.equal(result.balance.committed, '0.00');
+  });
   it('reuses the 30-day forecast for total balance and forecast fields', async () => {
     const context = harness({ currentBalance: '4800.00' });
     const result = await context.service.getOverview('owner', { asOf: asOf.toISOString() });

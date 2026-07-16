@@ -66,6 +66,7 @@ npm run build
 - `GET /financial-timeline`
 - `GET /balance-forecast`
 - `GET /dashboard-overview`
+- `POST/GET/PATCH/DELETE /category-budgets`, `GET /category-budgets/overview`
 - `GET/POST/PATCH/DELETE /categories`
 - `GET/POST/PATCH/DELETE /fixed-expenses`
 - `GET/POST/PATCH/DELETE /fixed-incomes`
@@ -173,6 +174,14 @@ Ajuste: nao e receita; nao e despesa; corrige o saldo real e mantem historico.
 ```
 
 O saldo usa `initialBalance + receitas - despesas + recebidas - enviadas + ajustes`, com `Prisma.Decimal` e corte por `asOf`. Transferencias e ajustes sao atomicos, nao criam `Transaction`, aparecem na Timeline como informativos e entram em `latestMovements`; `latestTransactions` permanece temporariamente como campo legado.
+
+## Orçamentos mensais por categoria
+
+`CategoryBudget` define um limite analítico mensal, ativo por padrão, para uma categoria `expense` ou `both` do próprio usuário. Não bloqueia movimentações, não altera saldo e não entra no comprometido. `DELETE /category-budgets/:id` apenas arquiva; `GET /category-budgets?isActive=false` preserva consulta histórica.
+
+`GET /category-budgets/overview?year=2026&month=7&asOf=` retorna gasto em conta e cartão, restante, percentual e status `within_budget`, `near_limit` ou `exceeded`, sempre como strings monetárias com duas casas. Para conta, entram somente `Transaction` de despesa da categoria até o período UTC realizado e pagamentos de fatura são excluídos. Para cartão, cada parcela não cancelada entra pelo mês/ano da fatura, inclusive faturas pagas; compras parceladas contam somente pelo valor da parcela e pagamento da fatura não conta novamente.
+
+`GET /dashboard-overview` inclui somente `budgetSummary` do mês UTC de `asOf`; saldo, comprometido, disponível para gastar e meta diária não mudam.
 
 Validacao completa:
 

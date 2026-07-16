@@ -7,6 +7,7 @@ import { AccountTransfersModule } from './account-transfers/account-transfers.mo
 import { BalanceForecastModule } from './balance-forecast/balance-forecast.module';
 import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
+import { CategoryBudgetsModule } from './category-budgets/category-budgets.module';
 import { CreditCardsModule } from './credit-cards/credit-cards.module';
 import { CreditCardPurchasesModule } from './credit-card-purchases/credit-card-purchases.module';
 import { CreditCardInvoicesModule } from './credit-card-invoices/credit-card-invoices.module';
@@ -40,6 +41,7 @@ import { SubscriptionChargesModule } from './subscription-charges/subscription-c
     FinancialTimelineModule,
     TransactionsModule,
     CategoriesModule,
+    CategoryBudgetsModule,
     FixedExpensesModule,
     FixedIncomesModule,
     FixedOccurrencesModule,

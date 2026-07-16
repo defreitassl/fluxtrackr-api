@@ -110,6 +110,7 @@ model User {
   fixedOccurrences    FixedOccurrence[]
   accountTransfers    AccountTransfer[]
   balanceAdjustments  AccountBalanceAdjustment[]
+  categoryBudgets     CategoryBudget[]
 }
 
 model Category {
@@ -130,6 +131,7 @@ model Category {
   fixedExpenses    FixedExpense[]
   fixedIncomes     FixedIncome[]
   fixedOccurrences FixedOccurrence[]
+  budgets          CategoryBudget[]
 
   @@unique([userId, name])
   @@index([userId])
@@ -160,6 +162,26 @@ model Transaction {
   @@index([userId, occurredAt])
   @@index([categoryId])
   @@index([accountId])
+}
+
+model CategoryBudget {
+  id                String   @id @default(uuid())
+  userId            String
+  categoryId        String
+  year              Int
+  month             Int
+  limitAmount       Decimal  @db.Decimal(12, 2)
+  warningPercentage Int      @default(80)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@unique([userId, categoryId, year, month])
+  @@index([userId, year, month])
+  @@index([categoryId, year, month])
 }
 
 model FixedExpense {

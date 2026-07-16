@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { BalanceForecastService } from '../balance-forecast/balance-forecast.service';
+import { CategoryBudgetSpendingService } from '../category-budgets/category-budget-spending.service';
 import { calculateCreditCardInvoiceTotal } from '../credit-card-invoices/credit-card-invoice-total';
 import { FinancialTimelineService } from '../financial-timeline/financial-timeline.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -70,6 +71,7 @@ export class DashboardOverviewService {
     private readonly prisma: PrismaService,
     private readonly forecast: BalanceForecastService,
     private readonly timeline: FinancialTimelineService,
+    private readonly budgetSpending: CategoryBudgetSpendingService,
   ) {}
 
   async getOverview(userId: string, query: GetDashboardOverviewDto) {
@@ -90,6 +92,7 @@ export class DashboardOverviewService {
       latestTransactions,
       latestTransfers,
       latestAdjustments,
+      budgetSummary,
     ] = await Promise.all([
       this.forecast.getForecast(userId, {
         asOf: asOf.toISOString(),
@@ -200,6 +203,7 @@ export class DashboardOverviewService {
         orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
         take: 5,
       }),
+      this.budgetSpending.getBudgetSummary(userId, asOf.getUTCFullYear(), asOf.getUTCMonth() + 1, asOf),
     ]);
 
     const invoiceTotals = invoices.map((invoice) => ({
@@ -283,6 +287,13 @@ export class DashboardOverviewService {
         projectedFinalBalance: forecast.projectedFinalBalance,
         minimumProjectedBalance: forecast.minimumProjectedBalance,
         firstNegativeDate: forecast.firstNegativeDate,
+      },
+      budgetSummary: {
+        totalLimit: budgetSummary.totalLimit,
+        totalSpent: budgetSummary.totalSpent,
+        totalRemaining: budgetSummary.totalRemaining,
+        nearLimitCount: budgetSummary.nearLimitCount,
+        exceededCount: budgetSummary.exceededCount,
       },
       nextInvoice: nextInvoiceEntry
         ? {
