@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityService } from '../activities/activity.service';
+import { NotificationImpactService } from '../notifications/notification-impact.service';
 import { CategoryBudgetSpendingService, getBudgetStatus } from './category-budget-spending.service';
 import { CreateCategoryBudgetDto } from './dto/create-category-budget.dto';
 import { GetCategoryBudgetOverviewDto } from './dto/get-category-budget-overview.dto';
@@ -14,19 +16,27 @@ export class CategoryBudgetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly spending: CategoryBudgetSpendingService,
+    private readonly activities?: ActivityService,
+    private readonly impacts?: NotificationImpactService,
   ) {}
 
   async create(userId: string, dto: CreateCategoryBudgetDto) {
     await this.ensureCategory(userId, dto.categoryId);
     try {
-      const budget = await this.prisma.categoryBudget.create({
+      const persist = async (tx: any) => {
+        const budget = await tx.categoryBudget.create({
         data: {
           userId, categoryId: dto.categoryId, year: dto.year, month: dto.month,
           limitAmount: this.parseLimit(dto.limitAmount),
           warningPercentage: dto.warningPercentage ?? 80,
         },
         include: { category: true },
-      });
+        });
+        await this.activities?.record(tx, { userId, type: 'category_budget_created', entityType: 'category_budget', entityId: budget.id, title: 'Orçamento criado', description: budget.category.name, metadata: { categoryId: budget.categoryId, year: budget.year, month: budget.month, limitAmount: budget.limitAmount.toFixed(2), warningPercentage: budget.warningPercentage }, occurredAt: new Date() });
+        return budget;
+      };
+      const budget = this.activities ? await this.prisma.$transaction(persist) : await persist(this.prisma);
+      await this.impacts?.evaluateBudget(userId, budget.id);
       return this.serialize(budget);
     } catch (error) {
       this.handleConflict(error);
@@ -60,7 +70,8 @@ export class CategoryBudgetsService {
     if (isActive) await this.ensureCategory(userId, categoryId);
     else await this.ensureCategoryOwnership(userId, categoryId);
     try {
-      const budget = await this.prisma.categoryBudget.update({
+      const persist = async (tx: any) => {
+        const budget = await tx.categoryBudget.update({
         where: { id },
         data: {
           categoryId,
@@ -71,7 +82,13 @@ export class CategoryBudgetsService {
           isActive,
         },
         include: { category: true },
-      });
+        });
+        await this.activities?.record(tx, { userId, type: budget.isActive ? 'category_budget_updated' : 'category_budget_archived', entityType: 'category_budget', entityId: budget.id, title: budget.isActive ? 'Orçamento atualizado' : 'Orçamento arquivado', description: budget.category.name, metadata: { categoryId: budget.categoryId, year: budget.year, month: budget.month, limitAmount: budget.limitAmount.toFixed(2), warningPercentage: budget.warningPercentage }, occurredAt: new Date() });
+        return budget;
+      };
+      const budget = this.activities ? await this.prisma.$transaction(persist) : await persist(this.prisma);
+      await this.impacts?.evaluateBudget(userId, current.id);
+      await this.impacts?.evaluateBudget(userId, budget.id);
       return this.serialize(budget);
     } catch (error) {
       this.handleConflict(error);
@@ -81,7 +98,12 @@ export class CategoryBudgetsService {
 
   async remove(userId: string, id: string) {
     await this.findOne(userId, id);
-    await this.prisma.categoryBudget.update({ where: { id }, data: { isActive: false } });
+    const persist = async (tx: any) => {
+      const budget = await tx.categoryBudget.update({ where: { id }, data: { isActive: false }, include: { category: true } });
+      await this.activities?.record(tx, { userId, type: 'category_budget_archived', entityType: 'category_budget', entityId: id, title: 'Orçamento arquivado', description: budget.category.name, metadata: { categoryId: budget.categoryId, year: budget.year, month: budget.month, limitAmount: budget.limitAmount.toFixed(2), warningPercentage: budget.warningPercentage }, occurredAt: new Date() });
+    };
+    if (this.activities) await this.prisma.$transaction(persist); else await persist(this.prisma);
+    await this.impacts?.evaluateBudget(userId, id);
     return { archived: true };
   }
 

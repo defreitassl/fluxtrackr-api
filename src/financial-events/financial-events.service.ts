@@ -7,6 +7,8 @@ import {
 import { Prisma } from '@prisma/client';
 import { CreditCardPurchaseDomainService } from '../credit-card-purchases/credit-card-purchase-domain.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityService } from '../activities/activity.service';
+import { NotificationImpactService } from '../notifications/notification-impact.service';
 import { CreateFinancialEventDto } from './dto/create-financial-event.dto';
 import { ListFinancialEventsDto } from './dto/list-financial-events.dto';
 import { PostponeFinancialEventDto } from './dto/postpone-financial-event.dto';
@@ -42,10 +44,12 @@ export class FinancialEventsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly purchaseDomain: CreditCardPurchaseDomainService,
+    private readonly activities?: ActivityService,
+    private readonly impacts?: NotificationImpactService,
   ) {}
 
-  create(userId: string, dto: CreateFinancialEventDto) {
-    return this.prisma.$transaction(async (tx) => {
+  async create(userId: string, dto: CreateFinancialEventDto) {
+    const event = await this.prisma.$transaction(async (tx) => {
       const data: EventData = {
         ...dto,
         date: new Date(dto.date),
@@ -55,6 +59,8 @@ export class FinancialEventsService {
       await this.validateEventData(tx, userId, data);
       return tx.financialEvent.create({ data: { userId, ...data } });
     });
+    await this.impacts?.evaluateFinancialEvent(userId, event.id);
+    return event;
   }
 
   findMany(userId: string, filters: ListFinancialEventsDto) {
@@ -89,8 +95,8 @@ export class FinancialEventsService {
     return event;
   }
 
-  update(userId: string, id: string, dto: UpdateFinancialEventDto) {
-    return this.prisma.$transaction(async (tx) => {
+  async update(userId: string, id: string, dto: UpdateFinancialEventDto) {
+    const event = await this.prisma.$transaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
       this.ensureEditable(event.status);
       const data: EventData = {
@@ -116,40 +122,50 @@ export class FinancialEventsService {
       await this.validateEventData(tx, userId, data);
       return tx.financialEvent.update({ where: { id }, data });
     });
+    await this.impacts?.evaluateFinancialEvent(userId, id);
+    return event;
   }
 
-  remove(userId: string, id: string) {
-    return this.prisma.$transaction(async (tx) => {
+  async remove(userId: string, id: string) {
+    const event = await this.prisma.$transaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
       if (event.status === 'realized' || event.status === 'canceled') {
         throw new BadRequestException(
           'Canceled or realized financial event cannot be changed',
         );
       }
-      return tx.financialEvent.update({
+      const updated = await tx.financialEvent.update({
         where: { id },
         data: { status: 'canceled' },
       });
+      await this.activities?.record(tx, { userId, type: 'financial_event_canceled', entityType: 'financial_event', entityId: id, title: 'Evento financeiro cancelado', description: event.name, metadata: { amount: event.expectedAmount.toFixed(2), eventType: event.type, effectiveDate: event.date.toISOString() }, occurredAt: new Date() });
+      return updated;
     });
+    await this.impacts?.evaluateFinancialEvent(userId, id);
+    return event;
   }
 
-  postpone(userId: string, id: string, dto: PostponeFinancialEventDto) {
-    return this.prisma.$transaction(async (tx) => {
+  async postpone(userId: string, id: string, dto: PostponeFinancialEventDto) {
+    const event = await this.prisma.$transaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
       if (!['planned', 'postponed', 'confirmed'].includes(event.status)) {
         throw new BadRequestException(
           'Canceled or realized financial event cannot be changed',
         );
       }
-      return tx.financialEvent.update({
+      const updated = await tx.financialEvent.update({
         where: { id },
         data: { date: new Date(dto.date), status: 'postponed' },
       });
+      await this.activities?.record(tx, { userId, type: 'financial_event_postponed', entityType: 'financial_event', entityId: id, title: 'Evento financeiro adiado', description: event.name, metadata: { amount: event.expectedAmount.toFixed(2), eventType: event.type, previousEffectiveDate: event.date.toISOString(), effectiveDate: updated.date.toISOString() }, occurredAt: new Date() });
+      return updated;
     });
+    await this.impacts?.evaluateFinancialEvent(userId, id);
+    return event;
   }
 
-  confirm(userId: string, id: string) {
-    return this.runSerializableTransaction(async (tx) => {
+  async confirm(userId: string, id: string) {
+    const event = await this.runSerializableTransaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
       if (event.status === 'confirmed' || event.status === 'realized') {
         throw new ConflictException('Financial event already confirmed');
@@ -176,15 +192,19 @@ export class FinancialEventsService {
       };
       await this.validateEventData(tx, userId, data);
 
-      return tx.financialEvent.update({
+      const updated = await tx.financialEvent.update({
         where: { id },
         data: { status: 'confirmed' },
       });
+      await this.activities?.record(tx, { userId, type: 'financial_event_confirmed', entityType: 'financial_event', entityId: id, title: 'Evento financeiro confirmado', description: event.name, metadata: { amount: event.expectedAmount.toFixed(2), eventType: event.type, effectiveDate: event.date.toISOString() }, occurredAt: new Date() });
+      return updated;
     });
+    await this.impacts?.evaluateFinancialEvent(userId, id);
+    return event;
   }
 
-  realize(userId: string, id: string) {
-    return this.runSerializableTransaction(async (tx) => {
+  async realize(userId: string, id: string) {
+    const result = await this.runSerializableTransaction(async (tx) => {
       const event = await this.findOwnedEvent(tx, userId, id);
       if (
         event.status === 'realized' ||
@@ -275,6 +295,7 @@ export class FinancialEventsService {
             },
           })
         : null;
+      await this.activities?.record(tx, { userId, type: 'financial_event_realized', entityType: 'financial_event', entityId: id, title: 'Evento financeiro realizado', description: event.name, metadata: { amount: event.expectedAmount.toFixed(2), eventType: event.type, effectiveDate: event.date.toISOString() }, occurredAt: new Date() });
 
       return {
         event: realizedEvent,
@@ -283,6 +304,9 @@ export class FinancialEventsService {
         nextEvent,
       };
     });
+    await this.impacts?.evaluateFinancialEvent(userId, id);
+    if (result.nextEvent) await this.impacts?.evaluateFinancialEvent(userId, result.nextEvent.id);
+    return result;
   }
 
   private async validateEventData(

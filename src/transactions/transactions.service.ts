@@ -6,13 +6,14 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityService } from '../activities/activity.service';
+import { NotificationImpactService } from '../notifications/notification-impact.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { ListTransactionsDto } from './dto/list-transactions.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 
 @Injectable()
 export class TransactionsService {
-  constructor(private readonly prisma: PrismaService, private readonly activities: ActivityService) {}
+  constructor(private readonly prisma: PrismaService, private readonly activities: ActivityService, private readonly impacts: NotificationImpactService) {}
 
   async create(userId: string, createTransactionDto: CreateTransactionDto) {
     await this.ensureCategoryBelongsToUser(
@@ -21,7 +22,8 @@ export class TransactionsService {
     );
     await this.ensureAccountBelongsToUser(userId, createTransactionDto.accountId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const transaction = await this.prisma.$transaction(async (tx) => {
+      const actionAt = new Date();
       const transaction = await tx.transaction.create({
         data: {
         userId,
@@ -40,10 +42,12 @@ export class TransactionsService {
       await this.activities.record(tx, {
         userId, type: 'transaction_created', entityType: 'transaction', entityId: transaction.id,
         title: 'Transação criada', description: transaction.description,
-        metadata: { amount: transaction.amount.toFixed(2), transactionType: transaction.type }, occurredAt: transaction.occurredAt,
+        metadata: { amount: transaction.amount.toFixed(2), transactionType: transaction.type, accountId: transaction.accountId, categoryId: transaction.categoryId, effectiveDate: transaction.occurredAt.toISOString() }, occurredAt: actionAt,
       });
       return transaction;
     });
+    await this.evaluateBudgetImpact(userId, transaction.categoryId, transaction.occurredAt);
+    return transaction;
   }
 
   findMany(userId: string, filters: ListTransactionsDto) {
@@ -87,7 +91,6 @@ export class TransactionsService {
     id: string,
     updateTransactionDto: UpdateTransactionDto,
   ) {
-    await this.findOne(userId, id);
     await this.ensureCategoryBelongsToUser(
       userId,
       updateTransactionDto.categoryId,
@@ -97,7 +100,10 @@ export class TransactionsService {
       updateTransactionDto.accountId,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const current = await tx.transaction.findFirst({ where: { id, userId } });
+      if (!current) throw new NotFoundException('Transaction not found');
+      const actionAt = new Date();
       const transaction = await tx.transaction.update({
         where: { id },
         data: {
@@ -125,24 +131,33 @@ export class TransactionsService {
       await this.activities.record(tx, {
         userId, type: 'transaction_updated', entityType: 'transaction', entityId: transaction.id,
         title: 'Transação atualizada', description: transaction.description,
-        metadata: { amount: transaction.amount.toFixed(2), transactionType: transaction.type }, occurredAt: transaction.occurredAt,
+        metadata: { previousAmount: current.amount.toFixed(2), amount: transaction.amount.toFixed(2), transactionType: transaction.type, previousCategoryId: current.categoryId, categoryId: transaction.categoryId, previousAccountId: current.accountId, accountId: transaction.accountId, previousEffectiveDate: current.occurredAt.toISOString(), effectiveDate: transaction.occurredAt.toISOString() }, occurredAt: actionAt,
       });
-      return transaction;
+      return { transaction, current };
     });
+    await this.evaluateBudgetImpact(userId, result.current.categoryId, result.current.occurredAt);
+    await this.evaluateBudgetImpact(userId, result.transaction.categoryId, result.transaction.occurredAt);
+    return result.transaction;
   }
 
   async remove(userId: string, id: string) {
     const current = await this.findOne(userId, id);
     await this.prisma.$transaction(async (tx) => {
+      const actionAt = new Date();
       await tx.transaction.delete({ where: { id } });
       await this.activities.record(tx, {
         userId, type: 'transaction_deleted', entityType: 'transaction', entityId: id,
         title: 'Transação removida', description: current.description,
-        metadata: { amount: current.amount.toFixed(2), transactionType: current.type }, occurredAt: new Date(),
+        metadata: { amount: current.amount.toFixed(2), transactionType: current.type, accountId: current.accountId, categoryId: current.categoryId, effectiveDate: current.occurredAt.toISOString() }, occurredAt: actionAt,
       });
     });
+    await this.evaluateBudgetImpact(userId, current.categoryId, current.occurredAt);
 
     return { deleted: true };
+  }
+
+  private async evaluateBudgetImpact(userId: string, categoryId: string | null, effectiveDate: Date) {
+    await this.impacts.evaluateBudgetsForCategoryMonth(userId, categoryId, effectiveDate.getUTCFullYear(), effectiveDate.getUTCMonth() + 1);
   }
 
   private async ensureCategoryBelongsToUser(

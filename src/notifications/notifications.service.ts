@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { NotificationCategory, NotificationSeverity, NotificationSourceType, NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListNotificationsDto } from './dto/list-notifications.dto';
@@ -12,6 +12,7 @@ export class NotificationsService {
 
   async findMany(userId: string, query: ListNotificationsDto) {
     const cursor = query.cursor ? await this.prisma.notification.findFirst({ where: { id: query.cursor, userId }, select: { id: true, createdAt: true } }) : null;
+    if (query.cursor && !cursor) throw new BadRequestException('Invalid notification cursor');
     const where: Prisma.NotificationWhereInput = {
       userId, category: query.category, type: query.type, severity: query.severity,
       ...(query.isRead === undefined ? {} : query.isRead ? { readAt: { not: null } } : { readAt: null }),
@@ -26,9 +27,17 @@ export class NotificationsService {
   }
 
   async unreadCount(userId: string) { return { unreadCount: await this.prisma.notification.count({ where: { userId, readAt: null, dismissedAt: null, resolvedAt: null } }) }; }
-  async markRead(userId: string, id: string) { await this.requireOwned(userId, id); return this.prisma.notification.update({ where: { id }, data: { readAt: new Date() } }).then((row) => this.serialize(row)); }
+  async markRead(userId: string, id: string) {
+    await this.requireOwned(userId, id);
+    await this.prisma.notification.updateMany({ where: { id, userId, readAt: null }, data: { readAt: new Date() } });
+    return this.serialize(await this.prisma.notification.findUniqueOrThrow({ where: { id } }));
+  }
   async markAllRead(userId: string) { const result = await this.prisma.notification.updateMany({ where: { userId, readAt: null, dismissedAt: null, resolvedAt: null }, data: { readAt: new Date() } }); return { updatedCount: result.count }; }
-  async dismiss(userId: string, id: string) { await this.requireOwned(userId, id); await this.prisma.notification.update({ where: { id }, data: { dismissedAt: new Date() } }); return { dismissed: true }; }
+  async dismiss(userId: string, id: string) {
+    await this.requireOwned(userId, id);
+    await this.prisma.notification.updateMany({ where: { id, userId, dismissedAt: null }, data: { dismissedAt: new Date() } });
+    return { dismissed: true };
+  }
 
   upsertActive(db: Db, userId: string, input: NotificationUpsert) {
     return db.notification.upsert({ where: { userId_dedupeKey: { userId, dedupeKey: input.dedupeKey } }, create: { userId, ...input }, update: { category: input.category, type: input.type, severity: input.severity, title: input.title, message: input.message, sourceType: input.sourceType, sourceId: input.sourceId, scheduledFor: input.scheduledFor ?? null, resolvedAt: null } });

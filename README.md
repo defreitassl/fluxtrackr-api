@@ -210,6 +210,10 @@ npm run build
 npm test
 ```
 
+Atividades são auditoria funcional: são gravadas na mesma transação da ação de domínio e fazem rollback junto dela. `occurredAt` é o instante real da ação do usuário; quando houver uma data financeira distinta, `metadata.effectiveDate` guarda a data em UTC. Valores monetários em metadata são strings com duas casas.
+
+Notificações são projeções derivadas. A integração imediata ocorre somente depois do commit e uma falha é registrada sem desfazer a operação financeira. O bootstrap e o cron horário (`15 * * * *`, UTC) continuam reconciliando o estado persistido. Preferências desativadas impedem apenas novas ativações: alertas já existentes ainda são resolvidos quando a condição deixa de existir. Marcar como lida ou dispensar preserva o primeiro timestamp.
+
 ## Assinaturas financeiras
 
 `Subscription` é um template recorrente; `SubscriptionCharge` é uma cobrança persistida com snapshot e estado próprio. `recurrenceAnchorDate` é a base UTC da série; `nextChargeDate` é somente o ponteiro da próxima pendência. As cobranças são materializadas de forma idempotente para o mês UTC atual e 13 seguintes, no bootstrap, às 00:10 UTC e após alterações do template. Assinaturas inativas não geram cobranças nem são reativadas automaticamente; somente `PATCH {"isActive":true}` reativa. Somente `monthly`, `semiannual` e `yearly` são aceitas; cada assinatura usa exatamente uma conta ativa (com método não `credit`) ou um cartão ativo (sem método).

@@ -3,12 +3,14 @@ import { Prisma } from '@prisma/client';
 import { CreditCardPurchaseDomainService } from '../credit-card-purchases/credit-card-purchase-domain.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionChargesMaterializerService } from '../subscriptions/subscription-charges-materializer.service';
+import { ActivityService } from '../activities/activity.service';
+import { NotificationImpactService } from '../notifications/notification-impact.service';
 import { ListSubscriptionChargesDto } from './dto/list-subscription-charges.dto';
 import { RealizeSubscriptionChargeDto } from './dto/realize-subscription-charge.dto';
 
 @Injectable()
 export class SubscriptionChargesService {
-  constructor(private readonly prisma: PrismaService, private readonly purchases: CreditCardPurchaseDomainService, private readonly materializer: SubscriptionChargesMaterializerService) {}
+  constructor(private readonly prisma: PrismaService, private readonly purchases: CreditCardPurchaseDomainService, private readonly materializer: SubscriptionChargesMaterializerService, private readonly activities?: ActivityService, private readonly impacts?: NotificationImpactService) {}
   findMany(userId: string, query: ListSubscriptionChargesDto) { return this.prisma.subscriptionCharge.findMany({ where: { userId, subscriptionId: query.subscriptionId, status: query.status, accountId: query.accountId, creditCardId: query.creditCardId, chargeDate: query.startDate || query.endDate ? { gte: query.startDate ? new Date(query.startDate) : undefined, lte: query.endDate ? new Date(query.endDate) : undefined } : undefined }, orderBy: [{ chargeDate: 'asc' }, { id: 'asc' }] }); }
   async findOne(userId: string, id: string) { const charge = await this.prisma.subscriptionCharge.findFirst({ where: { id, userId } }); if (!charge) throw new NotFoundException('Subscription charge not found'); return charge; }
   realize(userId: string, id: string, dto: RealizeSubscriptionChargeDto) {
@@ -18,7 +20,7 @@ export class SubscriptionChargesService {
     if (occurredAt > now) throw new BadRequestException('occurredAt cannot be in the future');
     if (dto.accountId !== undefined && dto.creditCardId !== undefined) throw new BadRequestException('accountId and creditCardId are mutually exclusive');
     if (dto.creditCardId !== undefined && dto.paymentMethod !== undefined) throw new BadRequestException('Credit card subscription charge does not accept paymentMethod');
-    return this.runSerializableTransaction(async (tx) => {
+    const result = this.runSerializableTransaction(async (tx) => {
       const charge = await tx.subscriptionCharge.findFirst({ where: { id, userId }, include: { subscription: true } });
       if (!charge) throw new NotFoundException('Subscription charge not found');
       if (charge.status !== 'pending') throw new ConflictException('Only pending subscription charges can be realized');
@@ -33,16 +35,19 @@ export class SubscriptionChargesService {
       if (accountId) {
         const transaction = await tx.transaction.create({ data: { userId, type: 'expense', amount: charge.amount, description: charge.name, categoryId, accountId, paymentMethod: paymentMethod!, occurredAt, source: 'app' } });
         await tx.subscriptionCharge.update({ where: { id }, data: { status: 'realized', realizedTransactionId: transaction.id, realizedAt } });
+        await this.activities?.record(tx, { userId, type: 'subscription_charge_realized', entityType: 'subscription_charge', entityId: id, title: 'Cobrança de assinatura realizada', description: charge.name, metadata: { amount: charge.amount.toFixed(2), subscriptionId: charge.subscriptionId, effectiveDate: occurredAt.toISOString(), transactionId: transaction.id }, occurredAt: now });
         await this.refreshAfterTransition(tx, charge.subscription, realizedAt);
         return { charge: await tx.subscriptionCharge.findUniqueOrThrow({ where: { id } }), transaction, creditCardPurchase: null };
       }
       const creditCardPurchase = await this.purchases.create(tx, userId, { creditCardId: creditCardId!, categoryId, description: charge.name, totalAmount: charge.amount, purchaseDate: occurredAt, installmentCount: 1 });
       await tx.subscriptionCharge.update({ where: { id }, data: { status: 'realized', realizedCreditCardPurchaseId: creditCardPurchase.id, realizedAt } });
+      await this.activities?.record(tx, { userId, type: 'subscription_charge_realized', entityType: 'subscription_charge', entityId: id, title: 'Cobrança de assinatura realizada', description: charge.name, metadata: { amount: charge.amount.toFixed(2), subscriptionId: charge.subscriptionId, effectiveDate: occurredAt.toISOString(), creditCardPurchaseId: creditCardPurchase.id }, occurredAt: now });
       await this.refreshAfterTransition(tx, charge.subscription, realizedAt);
       return { charge: await tx.subscriptionCharge.findUniqueOrThrow({ where: { id } }), transaction: null, creditCardPurchase };
     });
+    return result.then(async (completed) => { await this.impacts?.evaluateSubscriptionCharge(userId, id); return completed; });
   }
-  cancel(userId: string, id: string) { const now = this.now(); return this.runSerializableTransaction(async (tx) => { const charge = await tx.subscriptionCharge.findFirst({ where: { id, userId }, include: { subscription: true } }); if (!charge) throw new NotFoundException('Subscription charge not found'); if (charge.status !== 'pending') throw new ConflictException('Only pending subscription charges can be canceled'); const updated = await tx.subscriptionCharge.update({ where: { id }, data: { status: 'canceled', canceledAt: now } }); await this.refreshAfterTransition(tx, charge.subscription, now); return updated; }); }
+  async cancel(userId: string, id: string) { const now = this.now(); const result = await this.runSerializableTransaction(async (tx) => { const charge = await tx.subscriptionCharge.findFirst({ where: { id, userId }, include: { subscription: true } }); if (!charge) throw new NotFoundException('Subscription charge not found'); if (charge.status !== 'pending') throw new ConflictException('Only pending subscription charges can be canceled'); const updated = await tx.subscriptionCharge.update({ where: { id }, data: { status: 'canceled', canceledAt: now } }); if (this.activities) await this.activities.record(tx, { userId, type: 'subscription_charge_canceled', entityType: 'subscription_charge', entityId: id, title: 'Cobrança de assinatura cancelada', description: charge.name, metadata: { amount: charge.amount.toFixed(2), subscriptionId: charge.subscriptionId, effectiveDate: charge.chargeDate.toISOString() }, occurredAt: now }); await this.refreshAfterTransition(tx, charge.subscription, now); return updated; }); await this.impacts?.evaluateSubscriptionCharge(userId, id); return result; }
   private async refreshAfterTransition(tx: Prisma.TransactionClient, subscription: any, reference: Date) { if (subscription.autoRenew && subscription.isActive) await this.materializer.materializeSubscription(subscription, reference, tx); else await this.materializer.refreshNextCharge(subscription.id, reference, tx); }
   private async validateResolved(tx: Prisma.TransactionClient, userId: string, accountId: string | null | undefined, creditCardId: string | null | undefined, categoryId: string | null | undefined, paymentMethod: any) {
     if (!!accountId === !!creditCardId) throw new BadRequestException('Subscription charge requires exactly one accountId or creditCardId');

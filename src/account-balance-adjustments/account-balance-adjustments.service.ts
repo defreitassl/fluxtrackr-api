@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { AccountBalanceService } from '../account-balances/account-balance.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityService } from '../activities/activity.service';
 import { CreateAccountBalanceAdjustmentDto } from './dto/create-account-balance-adjustment.dto';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class AccountBalanceAdjustmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly balances: AccountBalanceService,
+    private readonly activities?: ActivityService,
   ) {}
 
   create(userId: string, accountId: string, dto: CreateAccountBalanceAdjustmentDto) {
@@ -33,6 +35,7 @@ export class AccountBalanceAdjustmentsService {
           occurredAt,
         },
       });
+      await this.activities?.record(tx, { userId, type: 'balance_adjustment_created', entityType: 'account_balance_adjustment', entityId: adjustment.id, title: 'Ajuste de saldo criado', description: adjustment.reason, metadata: { accountId, previousBalance: adjustment.previousBalance.toFixed(2), newBalance: adjustment.newBalance.toFixed(2), difference: adjustment.difference.toFixed(2), reason: adjustment.reason, effectiveDate: adjustment.occurredAt.toISOString() }, occurredAt });
       return { adjustment, currentBalance: newBalance.toFixed(2) };
     });
   }

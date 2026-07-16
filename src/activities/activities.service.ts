@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListActivitiesDto } from './dto/list-activities.dto';
@@ -7,6 +7,7 @@ export class ActivitiesService {
   constructor(private readonly prisma: PrismaService) {}
   async findMany(userId: string, query: ListActivitiesDto) {
     const cursor = query.cursor ? await this.prisma.activity.findFirst({ where: { id: query.cursor, userId }, select: { id: true, occurredAt: true } }) : null;
+    if (query.cursor && !cursor) throw new BadRequestException('Invalid activity cursor');
     const where: Prisma.ActivityWhereInput = { userId, type: query.type, entityType: query.entityType, entityId: query.entityId,
       ...(query.startDate || query.endDate ? { occurredAt: { ...(query.startDate ? { gte: new Date(query.startDate) } : {}), ...(query.endDate ? { lte: new Date(query.endDate) } : {}) } } : {}),
       ...(cursor ? { OR: [{ occurredAt: { lt: cursor.occurredAt } }, { occurredAt: cursor.occurredAt, id: { lt: cursor.id } }] } : {}) };

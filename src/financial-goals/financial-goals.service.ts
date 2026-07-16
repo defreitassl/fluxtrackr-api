@@ -8,15 +8,16 @@ import { ListFinancialGoalsDto, ListGoalContributionsDto } from './dto/list-fina
 import { UpdateFinancialGoalDto } from './dto/update-financial-goal.dto';
 import { FinancialGoalProgressService } from './financial-goal-progress.service';
 import { ActivityService } from '../activities/activity.service';
+import { NotificationImpactService } from '../notifications/notification-impact.service';
 
 const zero = () => new Prisma.Decimal(0);
 
 @Injectable()
 export class FinancialGoalsService {
-  constructor(private readonly prisma: PrismaService, private readonly progress: FinancialGoalProgressService, private readonly activities: ActivityService) {}
+  constructor(private readonly prisma: PrismaService, private readonly progress: FinancialGoalProgressService, private readonly activities: ActivityService, private readonly impacts: NotificationImpactService) {}
 
-  create(userId: string, dto: CreateFinancialGoalDto) {
-    return this.runSerializableTransaction(async (tx) => {
+  async create(userId: string, dto: CreateFinancialGoalDto) {
+    const created = await this.runSerializableTransaction(async (tx) => {
       const now = new Date();
       const data = this.createData(dto, now);
       const goal = await tx.financialGoal.create({ data: { userId, ...data } });
@@ -27,6 +28,8 @@ export class FinancialGoalsService {
       if (updated.status === 'completed') await this.activities.record(tx, { userId, type: 'financial_goal_completed', entityType: 'financial_goal', entityId: goal.id, title: 'Meta financeira concluída', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
       return this.serialize(updated, initial, now);
     });
+    await this.impacts.evaluateGoal(userId, created.id);
+    return created;
   }
 
   async findMany(userId: string, query: ListFinancialGoalsDto) {
@@ -57,8 +60,8 @@ export class FinancialGoalsService {
     return { ...this.serialize(goal, progress.currentAmount, new Date()), recentContributions: recent.map((item) => this.serializeContribution(item)), contributionsCount: movementsCount };
   }
 
-  update(userId: string, id: string, dto: UpdateFinancialGoalDto) {
-    return this.runSerializableTransaction(async (tx) => {
+  async update(userId: string, id: string, dto: UpdateFinancialGoalDto) {
+    const updated = await this.runSerializableTransaction(async (tx) => {
       const current = await this.requireGoal(tx, userId, id);
       if (dto.status === 'completed') throw new BadRequestException('Financial goal status completed is derived from progress');
       const now = new Date();
@@ -84,10 +87,12 @@ export class FinancialGoalsService {
       if (!cancel && current.status !== 'completed' && goal.status === 'completed') await this.activities.record(tx, { userId, type: 'financial_goal_completed', entityType: 'financial_goal', entityId: goal.id, title: 'Meta financeira concluída', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
       return this.serialize(goal, amount, now);
     });
+    await this.impacts.evaluateGoal(userId, id);
+    return updated;
   }
 
-  remove(userId: string, id: string) {
-    return this.runSerializableTransaction(async (tx) => {
+  async remove(userId: string, id: string) {
+    const result = await this.runSerializableTransaction(async (tx) => {
       const goal = await this.requireGoal(tx, userId, id);
       if (goal.status !== 'canceled') {
         const now = new Date();
@@ -96,10 +101,12 @@ export class FinancialGoalsService {
       }
       return { canceled: true };
     });
+    await this.impacts.evaluateGoal(userId, id);
+    return result;
   }
 
-  addContribution(userId: string, goalId: string, dto: CreateGoalContributionDto) {
-    return this.runSerializableTransaction(async (tx) => {
+  async addContribution(userId: string, goalId: string, dto: CreateGoalContributionDto) {
+    const contribution = await this.runSerializableTransaction(async (tx) => {
       const goal = await this.requireGoal(tx, userId, goalId);
       if (goal.status === 'canceled') throw new BadRequestException('Canceled financial goals do not accept contributions');
       const amount = this.money(dto.amount, 'amount');
@@ -111,11 +118,13 @@ export class FinancialGoalsService {
       const contribution = await tx.goalContribution.create({ data: { userId, goalId, type: dto.type, amount, occurredAt, note: dto.note ?? null } });
       const current = dto.type === 'contribution' ? before.currentAmount.plus(amount) : before.currentAmount.minus(amount);
       const updated = await this.progress.reconcileGoalStatus(tx, goal, current, now);
-      await this.activities.record(tx, { userId, type: dto.type === 'contribution' ? 'goal_contribution_added' : 'goal_withdrawal_added', entityType: 'goal_contribution', entityId: contribution.id, title: dto.type === 'contribution' ? 'Aporte realizado' : 'Retirada realizada', description: goal.name, metadata: { amount: amount.toFixed(2), goalId }, occurredAt });
+      await this.activities.record(tx, { userId, type: dto.type === 'contribution' ? 'goal_contribution_added' : 'goal_withdrawal_added', entityType: 'goal_contribution', entityId: contribution.id, title: dto.type === 'contribution' ? 'Aporte realizado' : 'Retirada realizada', description: goal.name, metadata: { amount: amount.toFixed(2), goalId, effectiveDate: occurredAt.toISOString() }, occurredAt: now });
       if (goal.status !== updated.status && updated.status === 'completed') await this.activities.record(tx, { userId, type: 'financial_goal_completed', entityType: 'financial_goal', entityId: goalId, title: 'Meta financeira concluída', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
       if (goal.status === 'completed' && updated.status === 'active') await this.activities.record(tx, { userId, type: 'financial_goal_reopened', entityType: 'financial_goal', entityId: goalId, title: 'Meta financeira reaberta', description: goal.name, metadata: { targetAmount: goal.targetAmount.toFixed(2) }, occurredAt: now });
       return this.serializeContribution(contribution);
     });
+    await this.impacts.evaluateGoal(userId, goalId);
+    return contribution;
   }
 
   async listContributions(userId: string, goalId: string, query: ListGoalContributionsDto) {

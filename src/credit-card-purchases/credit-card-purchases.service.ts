@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditCardPurchaseDomainService } from './credit-card-purchase-domain.service';
+import { NotificationImpactService } from '../notifications/notification-impact.service';
 import { CreateCreditCardPurchaseDto } from './dto/create-credit-card-purchase.dto';
 import { ListCreditCardPurchasesDto } from './dto/list-credit-card-purchases.dto';
 
@@ -9,15 +10,23 @@ export class CreditCardPurchasesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly purchaseDomain: CreditCardPurchaseDomainService,
+    private readonly impacts?: NotificationImpactService,
   ) {}
 
-  create(userId: string, dto: CreateCreditCardPurchaseDto) {
-    return this.prisma.$transaction((tx) =>
+  async create(userId: string, dto: CreateCreditCardPurchaseDto) {
+    const purchase = await this.prisma.$transaction((tx) =>
       this.purchaseDomain.create(tx, userId, {
         ...dto,
         purchaseDate: new Date(dto.purchaseDate),
       }),
     );
+    if (!this.impacts) return purchase;
+    const installments = await this.prisma.installment.findMany({ where: { userId, purchaseId: purchase.id, invoiceId: { not: null } }, include: { invoice: { select: { id: true, year: true, month: true } } } });
+    for (const installment of installments) {
+      await this.impacts?.evaluateInvoice(userId, installment.invoice!.id);
+      await this.impacts?.evaluateBudgetsForCategoryMonth(userId, installment.categoryId, installment.invoice!.year, installment.invoice!.month);
+    }
+    return purchase;
   }
 
   findMany(userId: string, query: ListCreditCardPurchasesDto) {

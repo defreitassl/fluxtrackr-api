@@ -5,6 +5,8 @@ import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { ListSubscriptionsDto } from './dto/list-subscriptions.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { SubscriptionChargesMaterializerService } from './subscription-charges-materializer.service';
+import { ActivityService } from '../activities/activity.service';
+import { NotificationImpactService } from '../notifications/notification-impact.service';
 
 type SubscriptionData = {
   name: string; amount: Prisma.Decimal; recurrenceAnchorDate: Date; nextChargeDate: Date; recurrence: RecurrenceType;
@@ -14,16 +16,19 @@ type SubscriptionData = {
 
 @Injectable()
 export class SubscriptionsService {
-  constructor(private readonly prisma: PrismaService, private readonly materializer: SubscriptionChargesMaterializerService) {}
+  constructor(private readonly prisma: PrismaService, private readonly materializer: SubscriptionChargesMaterializerService, private readonly activities?: ActivityService, private readonly impacts?: NotificationImpactService) {}
 
-  create(userId: string, dto: CreateSubscriptionDto) {
-    return this.runSerializableTransaction(async (tx) => {
+  async create(userId: string, dto: CreateSubscriptionDto) {
+    const subscription = await this.runSerializableTransaction(async (tx) => {
       const data = this.fromDto(dto);
       await this.validate(tx, userId, data);
       const subscription = await tx.subscription.create({ data: { userId, ...data } });
+      await this.activities?.record(tx, { userId, type: 'subscription_created', entityType: 'subscription', entityId: subscription.id, title: 'Assinatura criada', description: subscription.name, metadata: { amount: subscription.amount.toFixed(2), recurrence: subscription.recurrence, nextChargeDate: subscription.nextChargeDate.toISOString() }, occurredAt: new Date() });
       if (subscription.isActive) await this.materializer.materializeSubscription(subscription, new Date(), tx);
       return tx.subscription.findUniqueOrThrow({ where: { id: subscription.id } });
     });
+    await this.evaluateCharges(userId, subscription.id);
+    return subscription;
   }
 
   findMany(userId: string, query: ListSubscriptionsDto) {
@@ -39,26 +44,38 @@ export class SubscriptionsService {
     return subscription;
   }
 
-  update(userId: string, id: string, dto: UpdateSubscriptionDto) {
-    return this.runSerializableTransaction(async (tx) => {
+  async update(userId: string, id: string, dto: UpdateSubscriptionDto) {
+    const subscription = await this.runSerializableTransaction(async (tx) => {
       const current = await tx.subscription.findFirst({ where: { id, userId } });
       if (!current) throw new NotFoundException('Subscription not found');
       const data = this.merge(current, dto);
       await this.validate(tx, userId, data);
       const subscription = await tx.subscription.update({ where: { id }, data });
+      await this.activities?.record(tx, { userId, type: subscription.isActive ? 'subscription_updated' : 'subscription_archived', entityType: 'subscription', entityId: subscription.id, title: subscription.isActive ? 'Assinatura atualizada' : 'Assinatura arquivada', description: subscription.name, metadata: { amount: subscription.amount.toFixed(2), recurrence: subscription.recurrence, nextChargeDate: subscription.nextChargeDate.toISOString() }, occurredAt: new Date() });
       if (!subscription.isActive) return this.materializer.archive(id, new Date(), tx);
       await this.materializer.materializeSubscription(subscription, new Date(), tx);
       return tx.subscription.findUniqueOrThrow({ where: { id } });
     });
+    await this.evaluateCharges(userId, id);
+    return subscription;
   }
 
-  remove(userId: string, id: string) {
-    return this.runSerializableTransaction(async (tx) => {
+  async remove(userId: string, id: string) {
+    const result = await this.runSerializableTransaction(async (tx) => {
       const subscription = await tx.subscription.findFirst({ where: { id, userId } });
       if (!subscription) throw new NotFoundException('Subscription not found');
       await this.materializer.archive(id, new Date(), tx);
+      await this.activities?.record(tx, { userId, type: 'subscription_archived', entityType: 'subscription', entityId: id, title: 'Assinatura arquivada', description: subscription.name, metadata: { amount: subscription.amount.toFixed(2), recurrence: subscription.recurrence, nextChargeDate: subscription.nextChargeDate.toISOString() }, occurredAt: new Date() });
       return { archived: true };
     });
+    await this.evaluateCharges(userId, id);
+    return result;
+  }
+
+  private async evaluateCharges(userId: string, subscriptionId: string) {
+    if (!this.impacts) return;
+    const charges = await this.prisma.subscriptionCharge.findMany({ where: { userId, subscriptionId }, select: { id: true } });
+    for (const charge of charges) await this.impacts?.evaluateSubscriptionCharge(userId, charge.id);
   }
 
   async summary(userId: string, asOf = new Date()) {

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityService } from '../activities/activity.service';
 import { CreateAccountTransferDto } from './dto/create-account-transfer.dto';
 import { ListAccountTransfersDto } from './dto/list-account-transfers.dto';
 
@@ -11,6 +12,8 @@ export class AccountTransfersService {
     @Optional()
     @Inject('ACCOUNT_TRANSFERS_NOW')
     private readonly now: () => Date = () => new Date(),
+    @Optional()
+    private readonly activities?: ActivityService,
   ) {}
 
   async create(userId: string, dto: CreateAccountTransferDto) {
@@ -35,7 +38,7 @@ export class AccountTransfersService {
         select: { id: true },
       });
       if (accounts.length !== 2) throw new BadRequestException('Invalid account');
-      return tx.accountTransfer.create({
+      const transfer = await tx.accountTransfer.create({
         data: {
           userId,
           sourceAccountId: dto.sourceAccountId,
@@ -45,6 +48,8 @@ export class AccountTransfersService {
           occurredAt,
         },
       });
+      if (this.activities) await this.activities.record(tx, { userId, type: 'transfer_created', entityType: 'account_transfer', entityId: transfer.id, title: 'Transferência criada', description: transfer.description, metadata: { amount: transfer.amount.toFixed(2), sourceAccountId: transfer.sourceAccountId, destinationAccountId: transfer.destinationAccountId, effectiveDate: transfer.occurredAt.toISOString() }, occurredAt: this.now() });
+      return transfer;
     });
   }
 
