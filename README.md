@@ -17,6 +17,11 @@ Crie `.env` a partir de `.env.example`:
 cp .env.example .env
 ```
 
+`DATABASE_URL` e `JWT_SECRET` sao obrigatorias em qualquer ambiente. A API nao
+inicia com segredo JWT padrao. `WEB_ORIGIN` e uma lista opcional, separada por
+virgulas, das origens web autorizadas pelo CORS; mantenha-a vazia enquanto nao
+houver frontend web.
+
 ## Rodar localmente
 
 Suba o PostgreSQL:
@@ -25,12 +30,16 @@ Suba o PostgreSQL:
 docker compose up -d postgres
 ```
 
-Prepare o Prisma e o seed:
+Prepare o Prisma e crie o primeiro usuario local:
 
 ```bash
 npm run prisma:generate
 npm run prisma:seed
 ```
+
+O seed exige `BOOTSTRAP_USER_NAME`, `BOOTSTRAP_USER_EMAIL` e
+`BOOTSTRAP_USER_PASSWORD`. Ele nunca usa credenciais padrao e deve ser usado
+somente para bootstrap controlado, nunca como parte do deploy.
 
 Rode a API:
 
@@ -49,6 +58,14 @@ PORT=3001 npm run start:dev
 ```bash
 npm run build
 ```
+
+## Railway
+
+O [`railway.json`](./railway.json) configura build, migracao de producao antes
+do start, healthcheck em `GET /health` e reinicio em falha. A configuracao no
+Railway ainda exige `DATABASE_URL` referenciando o servico PostgreSQL e um
+`JWT_SECRET` longo e aleatorio. Consulte o guia operacional do workspace em
+[`../docs/technical/railway-deployment.md`](../docs/technical/railway-deployment.md).
 
 ## Contrato OpenAPI
 

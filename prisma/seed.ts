@@ -5,8 +5,20 @@ import { config } from 'dotenv';
 
 config();
 
+function requiredEnvironmentVariable(name: string) {
+  const value = process.env[name]?.trim();
+
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+
+  return value;
+}
+
+const databaseUrl = requiredEnvironmentVariable('DATABASE_URL');
+
 const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: databaseUrl,
 });
 
 const prisma = new PrismaClient({ adapter });
@@ -23,16 +35,22 @@ const defaultCategories = [
 ];
 
 async function main() {
-  const passwordHash = await bcrypt.hash('123456', 10);
+  const name = requiredEnvironmentVariable('BOOTSTRAP_USER_NAME');
+  const email = requiredEnvironmentVariable('BOOTSTRAP_USER_EMAIL').toLowerCase();
+  const passwordHash = await bcrypt.hash(
+    requiredEnvironmentVariable('BOOTSTRAP_USER_PASSWORD'),
+    10,
+  );
 
   const user = await prisma.user.upsert({
-    where: { email: 'dev@fluxtrackr.local' },
+    where: { email },
     update: {
+      name,
       passwordHash,
     },
     create: {
-      name: 'Dev User',
-      email: 'dev@fluxtrackr.local',
+      name,
+      email,
       passwordHash,
     },
   });
