@@ -50,6 +50,12 @@ PORT=3001 npm run start:dev
 npm run build
 ```
 
+## Contrato OpenAPI
+
+O contrato completo da API fica em [`openapi.yaml`](./openapi.yaml). Ele documenta
+as rotas implementadas, autenticação JWT, validações de entrada, formatos de
+resposta e erros HTTP para uso por clientes, coleções de teste e geradores de SDK.
+
 ## Rotas principais
 
 - `GET /health`
@@ -73,6 +79,10 @@ npm run build
 - `GET/POST/PATCH/DELETE /fixed-incomes`
 - `GET /fixed-occurrences`, `GET /fixed-occurrences/:id`, `POST /fixed-occurrences/:id/realize` e `POST /fixed-occurrences/:id/cancel`
 - `GET /monthly-summary`
+- `GET/POST/PATCH/DELETE /subscriptions`, `GET /subscriptions/summary`
+- `GET /subscription-charges`, `GET /subscription-charges/:id`, `POST /subscription-charges/:id/realize` e `POST /subscription-charges/:id/cancel`
+- `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `POST /notifications/read-all` e `DELETE /notifications/:id`
+- `GET/PATCH /notification-preferences` e `GET /activities`
 
 ## Compras no cartao e faturas
 

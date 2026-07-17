@@ -1,0 +1,3016 @@
+openapi: 3.1.0
+info:
+  title: FluxTrackr API
+  version: 1.0.0
+  description: |
+    Contrato HTTP da API NestJS do FluxTrackr. A especificação foi derivada dos
+    controllers, DTOs, serviços e schema Prisma em 2026-07-16. Não há prefixo
+    global de rota: os caminhos abaixo são relativos diretamente à origem.
+
+    Todas as datas e horas usam ISO 8601. Valores retornados pelo domínio
+    financeiro são strings decimais com duas casas quando o cálculo precisa
+    preservar precisão; os DTOs legados que recebem `number` continuam assim.
+servers:
+  - url: http://localhost:3000
+    description: Desenvolvimento padrão
+  - url: http://localhost:3001
+    description: Desenvolvimento com PORT=3001
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Transactions
+  - name: Categories
+  - name: Accounts
+  - name: Credit cards
+  - name: Recurring entries
+  - name: Financial planning
+  - name: Budgets
+  - name: Financial goals
+  - name: Subscriptions
+  - name: Notification center
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [Health]
+      security: []
+      operationId: healthCheck
+      summary: Verifica a API e a conexão com o banco
+      responses:
+        '200':
+          description: API e banco disponíveis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: API disponível, mas banco indisponível
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      security: []
+      operationId: login
+      summary: Autentica por e-mail e senha
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '201':
+          description: JWT emitido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessToken'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /transactions:
+    get:
+      tags: [Transactions]
+      operationId: listTransactions
+      summary: Lista transações do usuário autenticado
+      parameters:
+        - $ref: '#/components/parameters/TransactionTypeQuery'
+        - $ref: '#/components/parameters/StartDateTimeQuery'
+        - $ref: '#/components/parameters/EndDateTimeQuery'
+        - $ref: '#/components/parameters/CategoryIdQuery'
+        - $ref: '#/components/parameters/AccountIdQuery'
+        - $ref: '#/components/parameters/PaymentMethodQuery'
+      responses:
+        '200':
+          description: Transações em ordem decrescente de ocorrência
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Transactions]
+      operationId: createTransaction
+      summary: Cria uma transação
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '201':
+          description: Transação criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /transactions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Transactions]
+      operationId: getTransaction
+      summary: Busca uma transação
+      responses:
+        '200':
+          description: Transação encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/TransactionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags: [Transactions]
+      operationId: updateTransaction
+      summary: Atualiza parcialmente uma transação
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTransactionRequest'
+      responses:
+        '200':
+          description: Transação atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/TransactionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [Transactions]
+      operationId: deleteTransaction
+      summary: Remove fisicamente uma transação
+      responses:
+        '200':
+          description: Transação removida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/TransactionNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /categories:
+    get:
+      tags: [Categories]
+      operationId: listCategories
+      summary: Lista categorias; por padrão, somente as ativas
+      parameters:
+        - $ref: '#/components/parameters/IsActiveQuery'
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/CategoryType'
+      responses:
+        '200':
+          description: Categorias ordenadas por nome
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Categories]
+      operationId: createCategory
+      summary: Cria uma categoria
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '201':
+          description: Categoria criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /categories/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Categories]
+      operationId: getCategory
+      summary: Busca uma categoria, inclusive arquivada
+      responses:
+        '200':
+          description: Categoria encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CategoryNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Categories]
+      operationId: updateCategory
+      summary: Atualiza ou arquiva uma categoria
+      description: 'Enviar `isActive: false` arquiva a categoria e seus orçamentos ativos.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCategoryRequest'
+      responses:
+        '200':
+          description: Categoria atualizada ou resultado de arquivamento
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/Category'
+                  - $ref: '#/components/schemas/CategoryArchiveUpdateResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CategoryNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Categories]
+      operationId: archiveCategory
+      summary: Arquiva uma categoria e seus orçamentos ativos
+      responses:
+        '200':
+          description: Categoria arquivada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchivedResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CategoryNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /accounts:
+    get:
+      tags: [Accounts]
+      operationId: listAccounts
+      summary: Lista contas ativas
+      responses:
+        '200':
+          description: Contas ativas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Accounts]
+      operationId: createAccount
+      summary: Cria uma conta financeira
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAccountRequest' }
+      responses:
+        '201':
+          description: Conta criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /accounts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Accounts]
+      operationId: getAccount
+      summary: Busca uma conta, inclusive arquivada
+      responses:
+        '200':
+          description: Conta encontrada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/AccountNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Accounts]
+      operationId: updateAccount
+      summary: Atualiza ou arquiva uma conta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateAccountRequest' }
+      responses:
+        '200':
+          description: Conta atualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/AccountNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Accounts]
+      operationId: archiveAccount
+      summary: Arquiva uma conta
+      responses:
+        '200':
+          description: Conta arquivada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArchivedResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/AccountNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /accounts/{accountId}/balance-adjustments:
+    parameters:
+      - $ref: '#/components/parameters/AccountIdPath'
+    get:
+      tags: [Accounts]
+      operationId: listAccountBalanceAdjustments
+      summary: Lista ajustes de saldo de uma conta
+      responses:
+        '200':
+          description: Ajustes em ordem decrescente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AccountBalanceAdjustment' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Accounts]
+      operationId: createAccountBalanceAdjustment
+      summary: Ajusta o saldo de uma conta ativa pelo novo saldo informado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBalanceAdjustmentRequest' }
+      responses:
+        '201':
+          description: Ajuste criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateBalanceAdjustmentResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /accounts/{accountId}/balance:
+    get:
+      tags: [Accounts]
+      operationId: getAccountBalance
+      summary: Calcula o saldo de uma conta até um instante
+      parameters:
+        - $ref: '#/components/parameters/AccountIdPath'
+        - $ref: '#/components/parameters/AsOfDateTimeQuery'
+      responses:
+        '200':
+          description: Decomposição do saldo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountBalance' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/AccountNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /account-transfers:
+    get:
+      tags: [Accounts]
+      operationId: listAccountTransfers
+      summary: Lista transferências entre contas
+      parameters:
+        - $ref: '#/components/parameters/AccountIdQuery'
+        - name: sourceAccountId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: destinationAccountId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+      responses:
+        '200':
+          description: Transferências em ordem decrescente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AccountTransfer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Accounts]
+      operationId: createAccountTransfer
+      summary: Cria uma transferência histórica entre duas contas ativas
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAccountTransferRequest' }
+      responses:
+        '201':
+          description: Transferência criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountTransfer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /account-transfers/{id}:
+    get:
+      tags: [Accounts]
+      operationId: getAccountTransfer
+      summary: Busca uma transferência
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Transferência encontrada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountTransfer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/AccountTransferNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /fixed-expenses:
+    get:
+      tags: [Recurring entries]
+      operationId: listFixedExpenses
+      summary: Lista despesas fixas ativas
+      responses:
+        '200':
+          description: Despesas fixas ativas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FixedExpense' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Recurring entries]
+      operationId: createFixedExpense
+      summary: Cria uma despesa fixa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateFixedExpenseRequest' }
+      responses:
+        '201':
+          description: Despesa fixa criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FixedExpense' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /fixed-expenses/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Recurring entries]
+      operationId: getFixedExpense
+      summary: Busca uma despesa fixa, inclusive arquivada
+      responses:
+        '200': { description: Despesa fixa, content: { application/json: { schema: { $ref: '#/components/schemas/FixedExpense' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedExpenseNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Recurring entries]
+      operationId: updateFixedExpense
+      summary: Atualiza uma despesa fixa
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateFixedExpenseRequest' } } }
+      responses:
+        '200': { description: Despesa fixa atualizada, content: { application/json: { schema: { $ref: '#/components/schemas/FixedExpense' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedExpenseNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Recurring entries]
+      operationId: archiveFixedExpense
+      summary: Arquiva uma despesa fixa
+      responses:
+        '200': { description: Despesa fixa arquivada, content: { application/json: { schema: { $ref: '#/components/schemas/ArchivedResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedExpenseNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /fixed-incomes:
+    get:
+      tags: [Recurring entries]
+      operationId: listFixedIncomes
+      summary: Lista receitas fixas ativas
+      responses:
+        '200':
+          description: Receitas fixas ativas
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/FixedIncome' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Recurring entries]
+      operationId: createFixedIncome
+      summary: Cria uma receita fixa
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateFixedIncomeRequest' } } }
+      responses:
+        '201': { description: Receita fixa criada, content: { application/json: { schema: { $ref: '#/components/schemas/FixedIncome' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /fixed-incomes/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Recurring entries]
+      operationId: getFixedIncome
+      summary: Busca uma receita fixa, inclusive arquivada
+      responses:
+        '200': { description: Receita fixa, content: { application/json: { schema: { $ref: '#/components/schemas/FixedIncome' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedIncomeNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Recurring entries]
+      operationId: updateFixedIncome
+      summary: Atualiza uma receita fixa
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateFixedIncomeRequest' } } }
+      responses:
+        '200': { description: Receita fixa atualizada, content: { application/json: { schema: { $ref: '#/components/schemas/FixedIncome' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedIncomeNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Recurring entries]
+      operationId: archiveFixedIncome
+      summary: Arquiva uma receita fixa
+      responses:
+        '200': { description: Receita fixa arquivada, content: { application/json: { schema: { $ref: '#/components/schemas/ArchivedResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedIncomeNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /fixed-occurrences:
+    get:
+      tags: [Recurring entries]
+      operationId: listFixedOccurrences
+      summary: Lista ocorrências mensais persistidas
+      parameters:
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/FixedOccurrenceType' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/FixedOccurrenceStatus' }
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - name: fixedExpenseId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: fixedIncomeId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: Ocorrências em ordem cronológica
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/FixedOccurrence' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /fixed-occurrences/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Recurring entries]
+      operationId: getFixedOccurrence
+      summary: Busca uma ocorrência fixa
+      responses:
+        '200': { description: Ocorrência encontrada, content: { application/json: { schema: { $ref: '#/components/schemas/FixedOccurrence' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedOccurrenceNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /fixed-occurrences/{id}/realize:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Recurring entries]
+      operationId: realizeFixedOccurrence
+      summary: Realiza uma ocorrência pendente e cria uma transação
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RealizeFixedOccurrenceRequest' } } }
+      responses:
+        '201':
+          description: Ocorrência e transação realizadas atomicamente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RealizeFixedOccurrenceResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedOccurrenceNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /fixed-occurrences/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Recurring entries]
+      operationId: cancelFixedOccurrence
+      summary: Cancela uma ocorrência pendente
+      responses:
+        '201':
+          description: Ocorrência cancelada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FixedOccurrence' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FixedOccurrenceNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /monthly-summary:
+    get:
+      tags: [Transactions]
+      operationId: getMonthlySummary
+      summary: Obtém o resumo mensal simples
+      parameters:
+        - name: year
+          in: query
+          required: true
+          schema: { type: integer, minimum: 2000, maximum: 2100 }
+        - name: month
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 12 }
+      responses:
+        '200':
+          description: Resumo do mês
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MonthlySummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /credit-cards:
+    get:
+      tags: [Credit cards]
+      operationId: listCreditCards
+      summary: Lista cartões; por padrão, somente os ativos
+      parameters: [{ $ref: '#/components/parameters/IsActiveQuery' }]
+      responses:
+        '200': { description: Cartões, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/CreditCard' } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Credit cards]
+      operationId: createCreditCard
+      summary: Cria um cartão de crédito
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateCreditCardRequest' } } }
+      responses:
+        '201': { description: Cartão criado, content: { application/json: { schema: { $ref: '#/components/schemas/CreditCard' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /credit-cards/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Credit cards]
+      operationId: getCreditCard
+      summary: Busca um cartão, inclusive arquivado
+      responses:
+        '200': { description: Cartão, content: { application/json: { schema: { $ref: '#/components/schemas/CreditCard' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CreditCardNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Credit cards]
+      operationId: updateCreditCard
+      summary: Atualiza ou arquiva/reativa um cartão
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateCreditCardRequest' } } }
+      responses:
+        '200': { description: Cartão atualizado, content: { application/json: { schema: { $ref: '#/components/schemas/CreditCard' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CreditCardNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Credit cards]
+      operationId: archiveCreditCard
+      summary: Arquiva um cartão de crédito
+      responses:
+        '200': { description: Cartão arquivado, content: { application/json: { schema: { $ref: '#/components/schemas/ArchivedResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CreditCardNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /credit-card-purchases:
+    get:
+      tags: [Credit cards]
+      operationId: listCreditCardPurchases
+      summary: Lista compras de cartão com parcelas
+      parameters:
+        - name: creditCardId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/StartDateTimeQuery'
+        - $ref: '#/components/parameters/EndDateTimeQuery'
+      responses:
+        '200':
+          description: Compras em ordem decrescente de data
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CreditCardPurchaseWithInstallments' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Credit cards]
+      operationId: createCreditCardPurchase
+      summary: Cria uma compra, parcelas e faturas futuras
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateCreditCardPurchaseRequest' } } }
+      responses:
+        '201': { description: Compra criada, content: { application/json: { schema: { $ref: '#/components/schemas/CreditCardPurchase' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CreditCardNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /credit-card-purchases/{id}:
+    get:
+      tags: [Credit cards]
+      operationId: getCreditCardPurchase
+      summary: Busca uma compra com parcelas e faturas
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Compra encontrada, content: { application/json: { schema: { $ref: '#/components/schemas/CreditCardPurchaseWithInvoices' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CreditCardPurchaseNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /credit-card-invoices:
+    get:
+      tags: [Credit cards]
+      operationId: listCreditCardInvoices
+      summary: Lista faturas com parcelas e total calculado
+      parameters:
+        - name: creditCardId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: year
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: month
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12 }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/CreditCardInvoiceStatus' }
+      responses:
+        '200': { description: Faturas, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/CreditCardInvoiceWithInstallments' } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /credit-card-invoices/{id}:
+    get:
+      tags: [Credit cards]
+      operationId: getCreditCardInvoice
+      summary: Busca uma fatura com parcelas e total calculado
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Fatura encontrada, content: { application/json: { schema: { $ref: '#/components/schemas/CreditCardInvoiceWithInstallments' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CreditCardInvoiceNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /credit-card-invoices/{id}/pay:
+    post:
+      tags: [Credit cards]
+      operationId: payCreditCardInvoice
+      summary: Paga integralmente uma fatura e cria a transação bancária
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PayCreditCardInvoiceRequest' } } }
+      responses:
+        '201': { description: Fatura paga, content: { application/json: { schema: { $ref: '#/components/schemas/PaidCreditCardInvoice' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-events:
+    get:
+      tags: [Financial planning]
+      operationId: listFinancialEvents
+      summary: Lista eventos financeiros
+      parameters:
+        - $ref: '#/components/parameters/TransactionTypeQuery'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/FinancialEventStatus' }
+        - $ref: '#/components/parameters/StartDateTimeQuery'
+        - $ref: '#/components/parameters/EndDateTimeQuery'
+        - $ref: '#/components/parameters/AccountIdQuery'
+        - name: creditCardId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200': { description: Eventos em ordem crescente de data, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FinancialEvent' } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Financial planning]
+      operationId: createFinancialEvent
+      summary: Cria um evento financeiro planejado
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateFinancialEventRequest' } } }
+      responses:
+        '201': { description: Evento criado, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialEvent' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-events/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Financial planning]
+      operationId: getFinancialEvent
+      summary: Busca um evento com a movimentação gerada, quando houver
+      responses:
+        '200': { description: Evento encontrado, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialEventDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialEventNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Financial planning]
+      operationId: updateFinancialEvent
+      summary: Atualiza evento planejado ou adiado
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateFinancialEventRequest' } } }
+      responses:
+        '200': { description: Evento atualizado, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialEvent' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialEventNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Financial planning]
+      operationId: cancelFinancialEvent
+      summary: Cancela logicamente um evento
+      responses:
+        '200': { description: Evento cancelado, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialEvent' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialEventNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-events/{id}/postpone:
+    post:
+      tags: [Financial planning]
+      operationId: postponeFinancialEvent
+      summary: Adia um evento planejado, adiado ou confirmado
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PostponeFinancialEventRequest' } } }
+      responses:
+        '201': { description: Evento adiado, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialEvent' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialEventNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-events/{id}/confirm:
+    post:
+      tags: [Financial planning]
+      operationId: confirmFinancialEvent
+      summary: Confirma um compromisso sem gerar movimentação
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '201': { description: Evento confirmado, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialEvent' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialEventNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-events/{id}/realize:
+    post:
+      tags: [Financial planning]
+      operationId: realizeFinancialEvent
+      summary: Realiza um evento confirmado
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '201':
+          description: Evento realizado e movimentação criada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RealizeFinancialEventResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialEventNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-timeline:
+    get:
+      tags: [Financial planning]
+      operationId: getFinancialTimeline
+      summary: Consulta cronológica derivada de passado e compromissos
+      parameters:
+        - name: startDate
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/DateTime' }
+        - name: endDate
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/DateTime' }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/FinancialTimelineType' }
+        - name: sourceType
+          in: query
+          schema: { $ref: '#/components/schemas/FinancialTimelineSourceType' }
+        - name: includeCanceled
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { description: Timeline e resumo de impactos, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialTimeline' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /balance-forecast:
+    get:
+      tags: [Financial planning]
+      operationId: getBalanceForecast
+      summary: Calcula a previsão consolidada de saldo
+      parameters:
+        - $ref: '#/components/parameters/AsOfDateTimeQuery'
+        - name: horizonDays
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 366, default: 30 }
+      responses:
+        '200': { description: Previsão diária e janelas de 7/30 dias, content: { application/json: { schema: { $ref: '#/components/schemas/BalanceForecast' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /dashboard-overview:
+    get:
+      tags: [Financial planning]
+      operationId: getDashboardOverview
+      summary: Obtém o Dashboard financeiro consolidado
+      parameters: [{ $ref: '#/components/parameters/AsOfDateTimeQuery' }]
+      responses:
+        '200': { description: Visão consolidada do Dashboard, content: { application/json: { schema: { $ref: '#/components/schemas/DashboardOverview' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /category-budgets:
+    get:
+      tags: [Budgets]
+      operationId: listCategoryBudgets
+      summary: Lista orçamentos; por padrão, somente ativos
+      parameters:
+        - name: year
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: month
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12 }
+        - $ref: '#/components/parameters/CategoryIdQuery'
+        - $ref: '#/components/parameters/IsActiveQuery'
+      responses:
+        '200': { description: Orçamentos, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/CategoryBudget' } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Budgets]
+      operationId: createCategoryBudget
+      summary: Cria um orçamento mensal para uma categoria de despesa
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateCategoryBudgetRequest' } } }
+      responses:
+        '201': { description: Orçamento criado, content: { application/json: { schema: { $ref: '#/components/schemas/CategoryBudget' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /category-budgets/overview:
+    get:
+      tags: [Budgets]
+      operationId: getCategoryBudgetOverview
+      summary: Consolida limites e gastos por categoria no período UTC
+      parameters:
+        - name: year
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: month
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 12 }
+        - $ref: '#/components/parameters/AsOfDateTimeQuery'
+      responses:
+        '200': { description: Visão analítica de orçamento, content: { application/json: { schema: { $ref: '#/components/schemas/CategoryBudgetOverview' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /category-budgets/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Budgets]
+      operationId: getCategoryBudget
+      summary: Busca um orçamento, inclusive arquivado
+      responses:
+        '200': { description: Orçamento, content: { application/json: { schema: { $ref: '#/components/schemas/CategoryBudget' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CategoryBudgetNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Budgets]
+      operationId: updateCategoryBudget
+      summary: Atualiza ou arquiva um orçamento
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateCategoryBudgetRequest' } } }
+      responses:
+        '200': { description: Orçamento atualizado, content: { application/json: { schema: { $ref: '#/components/schemas/CategoryBudget' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CategoryBudgetNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Budgets]
+      operationId: archiveCategoryBudget
+      summary: Arquiva um orçamento
+      responses:
+        '200': { description: Orçamento arquivado, content: { application/json: { schema: { $ref: '#/components/schemas/ArchivedResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/CategoryBudgetNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-goals:
+    get:
+      tags: [Financial goals]
+      operationId: listFinancialGoals
+      summary: Lista metas financeiras com progresso derivado
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/FinancialGoalStatus' }
+        - name: targetDateFrom
+          in: query
+          schema: { $ref: '#/components/schemas/Date' }
+        - name: targetDateTo
+          in: query
+          schema: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200': { description: Metas ordenadas por prioridade, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/FinancialGoal' } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Financial goals]
+      operationId: createFinancialGoal
+      summary: Cria uma meta financeira analítica
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateFinancialGoalRequest' } } }
+      responses:
+        '201': { description: Meta criada, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoal' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-goals/overview:
+    get:
+      tags: [Financial goals]
+      operationId: getFinancialGoalsOverview
+      summary: Consolida metas no corte temporal informado
+      parameters: [{ $ref: '#/components/parameters/AsOfDateQuery' }]
+      responses:
+        '200': { description: Overview de metas, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoalsOverview' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-goals/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Financial goals]
+      operationId: getFinancialGoal
+      summary: Busca uma meta, cinco aportes recentes e a contagem total
+      responses:
+        '200': { description: Meta detalhada, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoalDetail' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialGoalNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Financial goals]
+      operationId: updateFinancialGoal
+      summary: Atualiza ou cancela/reativa uma meta
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateFinancialGoalRequest' } } }
+      responses:
+        '200': { description: Meta atualizada, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialGoal' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialGoalNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Financial goals]
+      operationId: cancelFinancialGoal
+      summary: Cancela uma meta de forma idempotente
+      responses:
+        '200': { description: Meta cancelada, content: { application/json: { schema: { $ref: '#/components/schemas/CanceledResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialGoalNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /financial-goals/{id}/contributions:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Financial goals]
+      operationId: listGoalContributions
+      summary: Lista aportes e retiradas de uma meta
+      parameters:
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/GoalContributionType' }
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+      responses:
+        '200': { description: Movimentações da meta, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/GoalContribution' } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialGoalNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Financial goals]
+      operationId: createGoalContribution
+      summary: Registra aporte ou retirada analítica
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateGoalContributionRequest' } } }
+      responses:
+        '201': { description: Aporte ou retirada registrada, content: { application/json: { schema: { $ref: '#/components/schemas/GoalContribution' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/FinancialGoalNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /subscriptions:
+    get:
+      tags: [Subscriptions]
+      operationId: listSubscriptions
+      summary: Lista assinaturas; por padrão, somente ativas
+      parameters:
+        - $ref: '#/components/parameters/IsActiveQuery'
+        - $ref: '#/components/parameters/AccountIdQuery'
+        - name: creditCardId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/CategoryIdQuery'
+      responses:
+        '200': { description: Assinaturas, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Subscription' } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [Subscriptions]
+      operationId: createSubscription
+      summary: Cria uma assinatura e materializa cobranças futuras
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateSubscriptionRequest' } } }
+      responses:
+        '201': { description: Assinatura criada, content: { application/json: { schema: { $ref: '#/components/schemas/Subscription' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /subscriptions/summary:
+    get:
+      tags: [Subscriptions]
+      operationId: getSubscriptionsSummary
+      summary: Resume assinaturas ativas e a próxima cobrança
+      parameters: [{ $ref: '#/components/parameters/AsOfDateQuery' }]
+      responses:
+        '200': { description: Resumo de assinaturas, content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionsSummary' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /subscriptions/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Subscriptions]
+      operationId: getSubscription
+      summary: Busca uma assinatura, inclusive arquivada
+      responses:
+        '200': { description: Assinatura, content: { application/json: { schema: { $ref: '#/components/schemas/Subscription' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/SubscriptionNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Subscriptions]
+      operationId: updateSubscription
+      summary: Atualiza uma assinatura e reconcilia suas cobranças
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateSubscriptionRequest' } } }
+      responses:
+        '200': { description: Assinatura atualizada, content: { application/json: { schema: { $ref: '#/components/schemas/Subscription' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/SubscriptionNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [Subscriptions]
+      operationId: archiveSubscription
+      summary: Arquiva assinatura e cancela somente cobranças futuras pendentes
+      responses:
+        '200': { description: Assinatura arquivada, content: { application/json: { schema: { $ref: '#/components/schemas/ArchivedResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/SubscriptionNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /subscription-charges:
+    get:
+      tags: [Subscriptions]
+      operationId: listSubscriptionCharges
+      summary: Lista cobranças persistidas de assinaturas
+      parameters:
+        - name: subscriptionId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/SubscriptionChargeStatus' }
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - $ref: '#/components/parameters/AccountIdQuery'
+        - name: creditCardId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200': { description: Cobranças em ordem cronológica, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SubscriptionCharge' } } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /subscription-charges/{id}:
+    get:
+      tags: [Subscriptions]
+      operationId: getSubscriptionCharge
+      summary: Busca uma cobrança de assinatura
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Cobrança encontrada, content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionCharge' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/SubscriptionChargeNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /subscription-charges/{id}/realize:
+    post:
+      tags: [Subscriptions]
+      operationId: realizeSubscriptionCharge
+      summary: Realiza cobrança pendente em conta ou cartão
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/RealizeSubscriptionChargeRequest' } } }
+      responses:
+        '201': { description: Cobrança realizada, content: { application/json: { schema: { $ref: '#/components/schemas/RealizeSubscriptionChargeResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/SubscriptionChargeNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /subscription-charges/{id}/cancel:
+    post:
+      tags: [Subscriptions]
+      operationId: cancelSubscriptionCharge
+      summary: Cancela uma cobrança pendente
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '201': { description: Cobrança cancelada, content: { application/json: { schema: { $ref: '#/components/schemas/SubscriptionCharge' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/SubscriptionChargeNotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /notifications:
+    get:
+      tags: [Notification center]
+      operationId: listNotifications
+      summary: Lista notificações por cursor
+      parameters:
+        - name: category
+          in: query
+          schema: { $ref: '#/components/schemas/NotificationCategory' }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/NotificationType' }
+        - name: severity
+          in: query
+          schema: { $ref: '#/components/schemas/NotificationSeverity' }
+        - name: isRead
+          in: query
+          schema: { type: boolean }
+        - name: includeResolved
+          in: query
+          schema: { type: boolean, default: false }
+        - name: includeDismissed
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+      responses:
+        '200': { description: Página de notificações, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationPage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /notifications/unread-count:
+    get:
+      tags: [Notification center]
+      operationId: getUnreadNotificationsCount
+      summary: Conta alertas ativos não lidos
+      responses:
+        '200': { description: Contagem, content: { application/json: { schema: { $ref: '#/components/schemas/UnreadCount' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /notifications/read-all:
+    post:
+      tags: [Notification center]
+      operationId: markAllNotificationsRead
+      summary: Marca todos os alertas ativos como lidos
+      responses:
+        '201': { description: Quantidade atualizada, content: { application/json: { schema: { $ref: '#/components/schemas/UpdatedCount' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /notifications/{id}/read:
+    patch:
+      tags: [Notification center]
+      operationId: markNotificationRead
+      summary: Marca uma notificação como lida de forma idempotente
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Notificação após a leitura, content: { application/json: { schema: { $ref: '#/components/schemas/Notification' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotificationNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /notifications/{id}:
+    delete:
+      tags: [Notification center]
+      operationId: dismissNotification
+      summary: Dispensa uma notificação de forma idempotente
+      parameters: [{ $ref: '#/components/parameters/Id' }]
+      responses:
+        '200': { description: Notificação dispensada, content: { application/json: { schema: { $ref: '#/components/schemas/DismissedResponse' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotificationNotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /notification-preferences:
+    get:
+      tags: [Notification center]
+      operationId: getNotificationPreferences
+      summary: Retorna preferências efetivas, incluindo defaults
+      responses:
+        '200': { description: Preferências, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationPreferences' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    patch:
+      tags: [Notification center]
+      operationId: updateNotificationPreferences
+      summary: Atualiza preferências em lote de forma atômica
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateNotificationPreferencesRequest' } } }
+      responses:
+        '200': { description: Preferências efetivas após atualização, content: { application/json: { schema: { $ref: '#/components/schemas/NotificationPreferences' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /activities:
+    get:
+      tags: [Notification center]
+      operationId: listActivities
+      summary: Lista a auditoria funcional por cursor
+      parameters:
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/ActivityType' }
+        - name: entityType
+          in: query
+          schema: { $ref: '#/components/schemas/ActivityEntityType' }
+        - name: entityId
+          in: query
+          schema: { $ref: '#/components/schemas/Uuid' }
+        - $ref: '#/components/parameters/StartDateQuery'
+        - $ref: '#/components/parameters/EndDateQuery'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+      responses:
+        '200': { description: Página de atividades, content: { application/json: { schema: { $ref: '#/components/schemas/ActivityPage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token retornado por `POST /auth/login`.
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    AccountIdPath:
+      name: accountId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    TransactionTypeQuery:
+      name: type
+      in: query
+      schema: { $ref: '#/components/schemas/TransactionType' }
+    CategoryIdQuery:
+      name: categoryId
+      in: query
+      schema: { $ref: '#/components/schemas/Uuid' }
+    AccountIdQuery:
+      name: accountId
+      in: query
+      schema: { $ref: '#/components/schemas/Uuid' }
+    PaymentMethodQuery:
+      name: paymentMethod
+      in: query
+      schema: { $ref: '#/components/schemas/PaymentMethod' }
+    IsActiveQuery:
+      name: isActive
+      in: query
+      schema: { type: boolean }
+    StartDateTimeQuery:
+      name: startDate
+      in: query
+      schema: { $ref: '#/components/schemas/DateTime' }
+    EndDateTimeQuery:
+      name: endDate
+      in: query
+      schema: { $ref: '#/components/schemas/DateTime' }
+    StartDateQuery:
+      name: startDate
+      in: query
+      schema: { $ref: '#/components/schemas/Date' }
+    EndDateQuery:
+      name: endDate
+      in: query
+      schema: { $ref: '#/components/schemas/Date' }
+    AsOfDateTimeQuery:
+      name: asOf
+      in: query
+      schema: { $ref: '#/components/schemas/DateTime' }
+    AsOfDateQuery:
+      name: asOf
+      in: query
+      schema: { $ref: '#/components/schemas/Date' }
+    LimitQuery:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+    CursorQuery:
+      name: cursor
+      in: query
+      schema: { $ref: '#/components/schemas/Uuid' }
+  responses:
+    BadRequest:
+      description: Payload, parâmetro, regra de negócio ou cursor inválido
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: JWT ausente, inválido ou credenciais inválidas
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Recurso não encontrado ou não pertencente ao usuário autenticado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Conflito de unicidade, transição de estado ou escrita concorrente
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalServerError:
+      description: Erro inesperado do servidor
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    TransactionNotFound: { $ref: '#/components/responses/NotFound' }
+    CategoryNotFound: { $ref: '#/components/responses/NotFound' }
+    AccountNotFound: { $ref: '#/components/responses/NotFound' }
+    AccountTransferNotFound: { $ref: '#/components/responses/NotFound' }
+    FixedExpenseNotFound: { $ref: '#/components/responses/NotFound' }
+    FixedIncomeNotFound: { $ref: '#/components/responses/NotFound' }
+    FixedOccurrenceNotFound: { $ref: '#/components/responses/NotFound' }
+    CreditCardNotFound: { $ref: '#/components/responses/NotFound' }
+    CreditCardPurchaseNotFound: { $ref: '#/components/responses/NotFound' }
+    CreditCardInvoiceNotFound: { $ref: '#/components/responses/NotFound' }
+    FinancialEventNotFound: { $ref: '#/components/responses/NotFound' }
+    CategoryBudgetNotFound: { $ref: '#/components/responses/NotFound' }
+    FinancialGoalNotFound: { $ref: '#/components/responses/NotFound' }
+    SubscriptionNotFound: { $ref: '#/components/responses/NotFound' }
+    SubscriptionChargeNotFound: { $ref: '#/components/responses/NotFound' }
+    NotificationNotFound: { $ref: '#/components/responses/NotFound' }
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    DateTime:
+      type: string
+      format: date-time
+    Date:
+      type: string
+      format: date
+    Money:
+      type: string
+      pattern: '^-?\\d+\\.\\d{2}$'
+      examples: ['123.45']
+    PositiveMoney:
+      type: string
+      pattern: '^(?!0+\\.00$)\\d+\\.\\d{2}$'
+      examples: ['123.45']
+    ErrorResponse:
+      type: object
+      required: [statusCode, message]
+      properties:
+        statusCode: { type: integer, examples: [400] }
+        message:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+        error: { type: string }
+    HealthStatus:
+      type: object
+      required: [status, api, database]
+      properties:
+        status: { const: ok }
+        api: { const: up }
+        database: { const: up }
+    HealthUnavailable:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            status: { const: error }
+            api: { const: up }
+            database: { const: down }
+    AccessToken:
+      type: object
+      required: [accessToken]
+      properties:
+        accessToken: { type: string }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+    TransactionType:
+      type: string
+      enum: [income, expense]
+    TransactionSource:
+      type: string
+      enum: [app, telegram]
+    PaymentMethod:
+      type: string
+      enum: [pix, debit, credit, cash, transfer, boleto]
+    CategoryType:
+      type: string
+      enum: [income, expense, both]
+    AccountType:
+      type: string
+      enum: [checking, savings, wallet, cash, investment, other]
+    CreditCardInvoiceStatus:
+      type: string
+      enum: [open, closed, paid, overdue, canceled]
+    InstallmentStatus:
+      type: string
+      enum: [pending, paid, canceled]
+    RecurrenceType:
+      type: string
+      enum: [once, monthly, yearly, semiannual, custom]
+    FinancialEventStatus:
+      type: string
+      enum: [planned, confirmed, postponed, canceled, realized]
+    FixedOccurrenceType:
+      type: string
+      enum: [expense, income]
+    FixedOccurrenceStatus:
+      type: string
+      enum: [pending, realized, canceled]
+    SubscriptionChargeStatus:
+      type: string
+      enum: [pending, realized, canceled]
+    FinancialGoalStatus:
+      type: string
+      enum: [active, completed, canceled]
+    GoalContributionType:
+      type: string
+      enum: [contribution, withdrawal]
+    NotificationCategory:
+      type: string
+      enum: [invoices, events, subscriptions, budgets, goals]
+    NotificationType:
+      type: string
+      enum: [invoice_due_soon, invoice_overdue, financial_event_upcoming, subscription_charge_upcoming, subscription_charge_overdue, budget_near_limit, budget_exceeded, goal_deadline_upcoming, goal_overdue]
+    NotificationSeverity:
+      type: string
+      enum: [info, warning, critical]
+    NotificationSourceType:
+      type: string
+      enum: [credit_card_invoice, financial_event, subscription_charge, category_budget, financial_goal]
+    ActivityType:
+      type: string
+      enum: [transaction_created, transaction_updated, transaction_deleted, transfer_created, balance_adjustment_created, invoice_paid, financial_event_confirmed, financial_event_realized, financial_event_postponed, financial_event_canceled, subscription_created, subscription_updated, subscription_archived, subscription_charge_realized, subscription_charge_canceled, category_archived, category_reactivated, category_budget_created, category_budget_updated, category_budget_archived, financial_goal_created, financial_goal_updated, financial_goal_completed, financial_goal_reopened, financial_goal_canceled, goal_contribution_added, goal_withdrawal_added]
+    ActivityEntityType:
+      type: string
+      enum: [transaction, account_transfer, account_balance_adjustment, credit_card_invoice, financial_event, subscription, subscription_charge, category, category_budget, financial_goal, goal_contribution]
+    FinancialTimelineType:
+      type: string
+      enum: [income, expense, transfer, adjustment]
+    FinancialTimelineSourceType:
+      type: string
+      enum: [transaction, financial_event, credit_card_invoice, fixed_expense, fixed_income, subscription, account_transfer, account_balance_adjustment]
+    Transaction:
+      type: object
+      required: [id, userId, type, amount, description, categoryId, accountId, paymentMethod, occurredAt, source, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/TransactionType' }
+        amount: { $ref: '#/components/schemas/Money' }
+        description: { type: string }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        occurredAt: { $ref: '#/components/schemas/DateTime' }
+        source: { $ref: '#/components/schemas/TransactionSource' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreateTransactionRequest:
+      type: object
+      additionalProperties: false
+      required: [type, amount, description, source]
+      properties:
+        type: { $ref: '#/components/schemas/TransactionType' }
+        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        description: { type: string, minLength: 1 }
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        occurredAt: { $ref: '#/components/schemas/DateTime' }
+        source: { $ref: '#/components/schemas/TransactionSource' }
+    UpdateTransactionRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        type: { $ref: '#/components/schemas/TransactionType' }
+        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        description: { type: string, minLength: 1 }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        occurredAt: { $ref: '#/components/schemas/DateTime' }
+        source: { $ref: '#/components/schemas/TransactionSource' }
+    Category:
+      type: object
+      required: [id, userId, name, type, isActive, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/CategoryType' }
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CategoryReference:
+      type: object
+      required: [id, name, type]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/CategoryType' }
+    CreateCategoryRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type]
+      properties:
+        name: { type: string, minLength: 1 }
+        type: { $ref: '#/components/schemas/CategoryType' }
+    UpdateCategoryRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1 }
+        type: { $ref: '#/components/schemas/CategoryType' }
+        isActive: { type: boolean }
+    CategoryArchiveUpdateResponse:
+      type: object
+      required: [archived, category]
+      properties:
+        archived:
+          type: object
+          required: [budgetIds]
+          properties:
+            budgetIds:
+              type: array
+              items: { $ref: '#/components/schemas/Uuid' }
+        category: { type: 'null' }
+    Account:
+      type: object
+      required: [id, userId, name, bank, type, color, icon, initialBalance, isActive, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        bank: { type: [string, 'null'] }
+        type: { $ref: '#/components/schemas/AccountType' }
+        color: { type: [string, 'null'] }
+        icon: { type: [string, 'null'] }
+        initialBalance: { $ref: '#/components/schemas/Money' }
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreateAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type, initialBalance]
+      properties:
+        name: { type: string, minLength: 1 }
+        bank: { type: string, minLength: 1 }
+        type: { $ref: '#/components/schemas/AccountType' }
+        color: { type: string, minLength: 1 }
+        icon: { type: string, minLength: 1 }
+        initialBalance: { type: number, multipleOf: 0.01 }
+        isActive: { type: boolean, default: true }
+    UpdateAccountRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1 }
+        bank: { type: [string, 'null'], minLength: 1 }
+        type: { $ref: '#/components/schemas/AccountType' }
+        color: { type: [string, 'null'], minLength: 1 }
+        icon: { type: [string, 'null'], minLength: 1 }
+        initialBalance: { type: number, multipleOf: 0.01 }
+        isActive: { type: boolean }
+    AccountTransfer:
+      type: object
+      required: [id, userId, sourceAccountId, destinationAccountId, amount, description, occurredAt, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        sourceAccountId: { $ref: '#/components/schemas/Uuid' }
+        destinationAccountId: { $ref: '#/components/schemas/Uuid' }
+        amount: { $ref: '#/components/schemas/Money' }
+        description: { type: [string, 'null'] }
+        occurredAt: { $ref: '#/components/schemas/DateTime' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreateAccountTransferRequest:
+      type: object
+      additionalProperties: false
+      required: [sourceAccountId, destinationAccountId, amount]
+      properties:
+        sourceAccountId: { $ref: '#/components/schemas/Uuid' }
+        destinationAccountId: { $ref: '#/components/schemas/Uuid' }
+        amount: { $ref: '#/components/schemas/PositiveMoney' }
+        description: { type: string, minLength: 1 }
+        occurredAt: { $ref: '#/components/schemas/Date' }
+    AccountBalanceAdjustment:
+      type: object
+      required: [id, userId, accountId, previousBalance, newBalance, difference, reason, occurredAt, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        previousBalance: { $ref: '#/components/schemas/Money' }
+        newBalance: { $ref: '#/components/schemas/Money' }
+        difference: { $ref: '#/components/schemas/Money' }
+        reason: { type: [string, 'null'] }
+        occurredAt: { $ref: '#/components/schemas/DateTime' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+    CreateBalanceAdjustmentRequest:
+      type: object
+      additionalProperties: false
+      required: [newBalance]
+      properties:
+        newBalance:
+          type: string
+          pattern: '^-?\\d+(?:\\.\\d{1,2})?$'
+        reason: { type: string, minLength: 1 }
+    CreateBalanceAdjustmentResponse:
+      type: object
+      required: [adjustment, currentBalance]
+      properties:
+        adjustment: { $ref: '#/components/schemas/AccountBalanceAdjustment' }
+        currentBalance: { $ref: '#/components/schemas/Money' }
+    AccountBalance:
+      type: object
+      required: [accountId, asOf, initialBalance, income, expense, incomingTransfers, outgoingTransfers, adjustments, currentBalance]
+      properties:
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        asOf: { $ref: '#/components/schemas/DateTime' }
+        initialBalance: { $ref: '#/components/schemas/Money' }
+        income: { $ref: '#/components/schemas/Money' }
+        expense: { $ref: '#/components/schemas/Money' }
+        incomingTransfers: { $ref: '#/components/schemas/Money' }
+        outgoingTransfers: { $ref: '#/components/schemas/Money' }
+        adjustments: { $ref: '#/components/schemas/Money' }
+        currentBalance: { $ref: '#/components/schemas/Money' }
+    FixedExpense:
+      type: object
+      required: [id, userId, name, amount, dueDay, categoryId, accountId, paymentMethod, isActive, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        dueDay: { type: [integer, 'null'], minimum: 1, maximum: 31 }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    FixedIncome:
+      type: object
+      required: [id, userId, name, amount, receiveDay, categoryId, accountId, paymentMethod, isActive, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        receiveDay: { type: [integer, 'null'], minimum: 1, maximum: 31 }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreateFixedExpenseRequest:
+      type: object
+      additionalProperties: false
+      required: [name, amount]
+      properties:
+        name: { type: string, minLength: 1 }
+        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        dueDay: { type: integer, minimum: 1, maximum: 31 }
+        isActive: { type: boolean }
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+    UpdateFixedExpenseRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1 }
+        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        dueDay: { type: [integer, 'null'], minimum: 1, maximum: 31 }
+        isActive: { type: boolean }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+    CreateFixedIncomeRequest:
+      type: object
+      additionalProperties: false
+      required: [name, amount]
+      properties:
+        name: { type: string, minLength: 1 }
+        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        receiveDay: { type: integer, minimum: 1, maximum: 31 }
+        isActive: { type: boolean }
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+    UpdateFixedIncomeRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1 }
+        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        receiveDay: { type: [integer, 'null'], minimum: 1, maximum: 31 }
+        isActive: { type: boolean }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+    FixedOccurrence:
+      type: object
+      required: [id, userId, type, status, fixedExpenseId, fixedIncomeId, name, amount, occurrenceDate, year, month, categoryId, accountId, paymentMethod, realizedTransactionId, realizedAt, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/FixedOccurrenceType' }
+        status: { $ref: '#/components/schemas/FixedOccurrenceStatus' }
+        fixedExpenseId: { type: [string, 'null'], format: uuid }
+        fixedIncomeId: { type: [string, 'null'], format: uuid }
+        name: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        occurrenceDate: { $ref: '#/components/schemas/DateTime' }
+        year: { type: integer }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        realizedTransactionId: { type: [string, 'null'], format: uuid }
+        realizedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    RealizeFixedOccurrenceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        occurredAt: { $ref: '#/components/schemas/Date' }
+    RealizeFixedOccurrenceResponse:
+      type: object
+      required: [occurrence, transaction]
+      properties:
+        occurrence: { $ref: '#/components/schemas/FixedOccurrence' }
+        transaction: { $ref: '#/components/schemas/Transaction' }
+    MonthlySummary:
+      type: object
+      required: [year, month, fixedIncomeTotal, fixedExpenseTotal, transactionIncomeTotal, transactionExpenseTotal, availableBalance, daysInMonth, currentDay, remainingDays, suggestedDailyBudget, expensesByCategory]
+      properties:
+        year: { type: integer }
+        month: { type: integer }
+        fixedIncomeTotal: { type: number }
+        fixedExpenseTotal: { type: number }
+        transactionIncomeTotal: { type: number }
+        transactionExpenseTotal: { type: number }
+        availableBalance: { type: number }
+        daysInMonth: { type: integer }
+        currentDay: { type: integer }
+        remainingDays: { type: integer }
+        suggestedDailyBudget: { type: number }
+        expensesByCategory:
+          type: array
+          items:
+            type: object
+            required: [categoryId, categoryName, total]
+            properties:
+              categoryId: { type: [string, 'null'], format: uuid }
+              categoryName: { type: string }
+              total: { type: number }
+    CreditCard:
+      type: object
+      required: [id, userId, accountId, name, bankName, brand, lastFourDigits, limitAmount, closingDay, dueDay, color, isActive, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        accountId: { type: [string, 'null'], format: uuid }
+        name: { type: string }
+        bankName: { type: [string, 'null'] }
+        brand: { type: [string, 'null'] }
+        lastFourDigits: { type: [string, 'null'], pattern: '^\\d{4}$' }
+        limitAmount: { $ref: '#/components/schemas/Money' }
+        closingDay: { type: [integer, 'null'], minimum: 1, maximum: 31 }
+        dueDay: { type: integer, minimum: 1, maximum: 31 }
+        color: { type: [string, 'null'] }
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreateCreditCardRequest:
+      type: object
+      additionalProperties: false
+      required: [name, limitAmount, dueDay]
+      properties:
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string, minLength: 1 }
+        bankName: { type: string, minLength: 1 }
+        brand: { type: string, minLength: 1 }
+        lastFourDigits: { type: string, pattern: '^\\d{4}$' }
+        limitAmount: { type: number, minimum: 0, multipleOf: 0.01 }
+        closingDay: { type: integer, minimum: 1, maximum: 31 }
+        dueDay: { type: integer, minimum: 1, maximum: 31 }
+        color: { type: string, minLength: 1 }
+    UpdateCreditCardRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        isActive: { type: boolean }
+        accountId: { type: [string, 'null'], format: uuid }
+        name: { type: string, minLength: 1 }
+        bankName: { type: [string, 'null'], minLength: 1 }
+        brand: { type: [string, 'null'], minLength: 1 }
+        lastFourDigits: { type: [string, 'null'], pattern: '^\\d{4}$' }
+        limitAmount: { type: number, minimum: 0, multipleOf: 0.01 }
+        closingDay: { type: [integer, 'null'], minimum: 1, maximum: 31 }
+        dueDay: { type: integer, minimum: 1, maximum: 31 }
+        color: { type: [string, 'null'], minLength: 1 }
+    CreditCardPurchase:
+      type: object
+      required: [id, userId, creditCardId, categoryId, description, totalAmount, purchaseDate, installmentCount, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        creditCardId: { $ref: '#/components/schemas/Uuid' }
+        categoryId: { type: [string, 'null'], format: uuid }
+        description: { type: string }
+        totalAmount: { $ref: '#/components/schemas/Money' }
+        purchaseDate: { $ref: '#/components/schemas/DateTime' }
+        installmentCount: { type: integer, minimum: 1, maximum: 120 }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreateCreditCardPurchaseRequest:
+      type: object
+      additionalProperties: false
+      required: [creditCardId, description, totalAmount, purchaseDate, installmentCount]
+      properties:
+        creditCardId: { $ref: '#/components/schemas/Uuid' }
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        description: { type: string, minLength: 1 }
+        totalAmount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        purchaseDate: { $ref: '#/components/schemas/DateTime' }
+        installmentCount: { type: integer, minimum: 1, maximum: 120 }
+    Installment:
+      type: object
+      required: [id, userId, creditCardId, invoiceId, purchaseId, categoryId, description, totalPurchaseAmount, installmentAmount, installmentNumber, installmentCount, purchaseDate, dueDate, status, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        creditCardId: { $ref: '#/components/schemas/Uuid' }
+        invoiceId: { type: [string, 'null'], format: uuid }
+        purchaseId: { type: [string, 'null'], format: uuid }
+        categoryId: { type: [string, 'null'], format: uuid }
+        description: { type: string }
+        totalPurchaseAmount: { $ref: '#/components/schemas/Money' }
+        installmentAmount: { $ref: '#/components/schemas/Money' }
+        installmentNumber: { type: integer, minimum: 1 }
+        installmentCount: { type: integer, minimum: 1 }
+        purchaseDate: { $ref: '#/components/schemas/DateTime' }
+        dueDate: { $ref: '#/components/schemas/DateTime' }
+        status: { $ref: '#/components/schemas/InstallmentStatus' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreditCardPurchaseWithInstallments:
+      allOf:
+        - $ref: '#/components/schemas/CreditCardPurchase'
+        - type: object
+          required: [installments]
+          properties:
+            installments:
+              type: array
+              items: { $ref: '#/components/schemas/Installment' }
+    CreditCardPurchaseWithInvoices:
+      allOf:
+        - $ref: '#/components/schemas/CreditCardPurchase'
+        - type: object
+          required: [installments]
+          properties:
+            installments:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/Installment'
+                  - type: object
+                    required: [invoice]
+                    properties:
+                      invoice:
+                        oneOf:
+                          - $ref: '#/components/schemas/CreditCardInvoice'
+                          - type: 'null'
+    CreditCardInvoice:
+      type: object
+      required: [id, userId, creditCardId, accountId, month, year, dueDate, closingDate, status, paidAt, paidAmount, paidTransactionId, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        creditCardId: { $ref: '#/components/schemas/Uuid' }
+        accountId: { type: [string, 'null'], format: uuid }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        year: { type: integer, minimum: 1 }
+        dueDate: { $ref: '#/components/schemas/DateTime' }
+        closingDate: { type: [string, 'null'], format: date-time }
+        status: { $ref: '#/components/schemas/CreditCardInvoiceStatus' }
+        paidAt: { type: [string, 'null'], format: date-time }
+        paidAmount:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        paidTransactionId: { type: [string, 'null'], format: uuid }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreditCardInvoiceWithInstallments:
+      allOf:
+        - $ref: '#/components/schemas/CreditCardInvoice'
+        - type: object
+          required: [installments, totalAmount]
+          properties:
+            installments:
+              type: array
+              items: { $ref: '#/components/schemas/Installment' }
+            totalAmount: { $ref: '#/components/schemas/Money' }
+    PayCreditCardInvoiceRequest:
+      type: object
+      additionalProperties: false
+      required: [accountId]
+      properties:
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        paidAt: { $ref: '#/components/schemas/DateTime' }
+    PaidCreditCardInvoice:
+      allOf:
+        - $ref: '#/components/schemas/CreditCardInvoiceWithInstallments'
+        - type: object
+          required: [transaction]
+          properties:
+            transaction: { $ref: '#/components/schemas/Transaction' }
+    FinancialEvent:
+      type: object
+      required: [id, userId, type, name, expectedAmount, date, categoryId, accountId, creditCardId, paymentMethod, recurrence, installmentCount, status, notes, confirmedTransactionId, confirmedCreditCardPurchaseId, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/TransactionType' }
+        name: { type: string }
+        expectedAmount: { $ref: '#/components/schemas/Money' }
+        date: { $ref: '#/components/schemas/DateTime' }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        creditCardId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        recurrence: { $ref: '#/components/schemas/RecurrenceType' }
+        installmentCount: { type: integer, minimum: 1, maximum: 120 }
+        status: { $ref: '#/components/schemas/FinancialEventStatus' }
+        notes: { type: [string, 'null'] }
+        confirmedTransactionId: { type: [string, 'null'], format: uuid }
+        confirmedCreditCardPurchaseId: { type: [string, 'null'], format: uuid }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    FinancialEventDetail:
+      allOf:
+        - $ref: '#/components/schemas/FinancialEvent'
+        - type: object
+          required: [confirmedTransaction, confirmedCreditCardPurchase]
+          properties:
+            confirmedTransaction:
+              oneOf:
+                - $ref: '#/components/schemas/Transaction'
+                - type: 'null'
+            confirmedCreditCardPurchase:
+              oneOf:
+                - $ref: '#/components/schemas/CreditCardPurchase'
+                - type: 'null'
+    CreateFinancialEventRequest:
+      type: object
+      additionalProperties: false
+      required: [type, name, expectedAmount, date]
+      properties:
+        type: { $ref: '#/components/schemas/TransactionType' }
+        name: { type: string, minLength: 1 }
+        expectedAmount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        date: { $ref: '#/components/schemas/DateTime' }
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        creditCardId: { $ref: '#/components/schemas/Uuid' }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        recurrence:
+          type: string
+          enum: [once, monthly, semiannual, yearly]
+          default: once
+        installmentCount: { type: integer, minimum: 1, maximum: 120, default: 1 }
+        notes: { type: string }
+    UpdateFinancialEventRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        type: { $ref: '#/components/schemas/TransactionType' }
+        name: { type: string, minLength: 1 }
+        expectedAmount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        date: { $ref: '#/components/schemas/DateTime' }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        creditCardId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        recurrence:
+          type: string
+          enum: [once, monthly, semiannual, yearly]
+        installmentCount: { type: integer, minimum: 1, maximum: 120 }
+        notes: { type: [string, 'null'] }
+    PostponeFinancialEventRequest:
+      type: object
+      additionalProperties: false
+      required: [date]
+      properties:
+        date: { $ref: '#/components/schemas/DateTime' }
+    RealizeFinancialEventResponse:
+      type: object
+      required: [event, transaction, creditCardPurchase, nextEvent]
+      properties:
+        event: { $ref: '#/components/schemas/FinancialEvent' }
+        transaction:
+          oneOf:
+            - $ref: '#/components/schemas/Transaction'
+            - type: 'null'
+        creditCardPurchase:
+          oneOf:
+            - $ref: '#/components/schemas/CreditCardPurchase'
+            - type: 'null'
+        nextEvent:
+          oneOf:
+            - $ref: '#/components/schemas/FinancialEvent'
+            - type: 'null'
+    TimelineItem:
+      type: object
+      required: [id, sourceType, sourceId, type, title, amount, date, status, balanceImpact, accountId, creditCardId, categoryId, metadata]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        sourceType: { $ref: '#/components/schemas/FinancialTimelineSourceType' }
+        sourceId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/FinancialTimelineType' }
+        title: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        date: { $ref: '#/components/schemas/DateTime' }
+        status: { type: string }
+        balanceImpact:
+          type: string
+          enum: [realized, projected, informational, none]
+        accountId: { type: [string, 'null'], format: uuid }
+        creditCardId: { type: [string, 'null'], format: uuid }
+        categoryId: { type: [string, 'null'], format: uuid }
+        metadata: { type: object, additionalProperties: true }
+    FinancialTimeline:
+      type: object
+      required: [startDate, endDate, items, summary]
+      properties:
+        startDate: { $ref: '#/components/schemas/DateTime' }
+        endDate: { $ref: '#/components/schemas/DateTime' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TimelineItem' }
+        summary:
+          type: object
+          required: [realizedIncome, realizedExpense, projectedIncome, projectedExpense]
+          properties:
+            realizedIncome: { $ref: '#/components/schemas/Money' }
+            realizedExpense: { $ref: '#/components/schemas/Money' }
+            projectedIncome: { $ref: '#/components/schemas/Money' }
+            projectedExpense: { $ref: '#/components/schemas/Money' }
+    BalanceForecastWindow:
+      type: object
+      required: [projectedIncome, projectedExpense, projectedFinalBalance]
+      properties:
+        projectedIncome: { $ref: '#/components/schemas/Money' }
+        projectedExpense: { $ref: '#/components/schemas/Money' }
+        projectedFinalBalance: { $ref: '#/components/schemas/Money' }
+    BalanceForecastPoint:
+      type: object
+      required: [date, income, expense, netChange, balance]
+      properties:
+        date: { type: string, format: date }
+        income: { $ref: '#/components/schemas/Money' }
+        expense: { $ref: '#/components/schemas/Money' }
+        netChange: { $ref: '#/components/schemas/Money' }
+        balance: { $ref: '#/components/schemas/Money' }
+    BalanceForecast:
+      type: object
+      required: [asOf, horizonDays, currentBalance, projectedIncome, projectedExpense, projectedFinalBalance, minimumProjectedBalance, firstNegativeDate, windows, points]
+      properties:
+        asOf: { $ref: '#/components/schemas/DateTime' }
+        horizonDays: { type: integer, minimum: 1, maximum: 366 }
+        currentBalance: { $ref: '#/components/schemas/Money' }
+        projectedIncome: { $ref: '#/components/schemas/Money' }
+        projectedExpense: { $ref: '#/components/schemas/Money' }
+        projectedFinalBalance: { $ref: '#/components/schemas/Money' }
+        minimumProjectedBalance: { $ref: '#/components/schemas/Money' }
+        firstNegativeDate: { type: [string, 'null'], format: date }
+        windows:
+          type: object
+          required: [next7Days, next30Days]
+          properties:
+            next7Days: { $ref: '#/components/schemas/BalanceForecastWindow' }
+            next30Days: { $ref: '#/components/schemas/BalanceForecastWindow' }
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/BalanceForecastPoint' }
+    BudgetSummary:
+      type: object
+      required: [totalLimit, totalSpent, totalRemaining, nearLimitCount, exceededCount]
+      properties:
+        totalLimit: { $ref: '#/components/schemas/Money' }
+        totalSpent: { $ref: '#/components/schemas/Money' }
+        totalRemaining: { $ref: '#/components/schemas/Money' }
+        nearLimitCount: { type: integer, minimum: 0 }
+        exceededCount: { type: integer, minimum: 0 }
+    DashboardOverview:
+      type: object
+      required: [asOf, balance, dailySpending, forecast30Days, budgetSummary, nextInvoice, upcomingCommitments, latestTransactions, latestMovements]
+      properties:
+        asOf: { $ref: '#/components/schemas/DateTime' }
+        balance:
+          type: object
+          required: [total, committed, availableToSpend]
+          properties:
+            total: { $ref: '#/components/schemas/Money' }
+            committed: { $ref: '#/components/schemas/Money' }
+            availableToSpend: { $ref: '#/components/schemas/Money' }
+        dailySpending:
+          type: object
+          required: [recommended, spentToday, remainingToday, daysRemainingInMonth, status]
+          properties:
+            recommended: { $ref: '#/components/schemas/Money' }
+            spentToday: { $ref: '#/components/schemas/Money' }
+            remainingToday: { $ref: '#/components/schemas/Money' }
+            daysRemainingInMonth: { type: integer, minimum: 1 }
+            status: { type: string, enum: [within_plan, over_plan, no_available_balance] }
+        forecast30Days:
+          type: object
+          required: [projectedFinalBalance, minimumProjectedBalance, firstNegativeDate]
+          properties:
+            projectedFinalBalance: { $ref: '#/components/schemas/Money' }
+            minimumProjectedBalance: { $ref: '#/components/schemas/Money' }
+            firstNegativeDate: { type: [string, 'null'], format: date }
+        budgetSummary: { $ref: '#/components/schemas/BudgetSummary' }
+        nextInvoice:
+          oneOf:
+            - type: object
+              required: [id, creditCardId, creditCardName, dueDate, status, amount, installmentsCount]
+              properties:
+                id: { $ref: '#/components/schemas/Uuid' }
+                creditCardId: { $ref: '#/components/schemas/Uuid' }
+                creditCardName: { type: string }
+                dueDate: { $ref: '#/components/schemas/DateTime' }
+                status: { $ref: '#/components/schemas/CreditCardInvoiceStatus' }
+                amount: { $ref: '#/components/schemas/Money' }
+                installmentsCount: { type: integer }
+            - type: 'null'
+        upcomingCommitments:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [id, sourceType, sourceId, type, title, amount, date, status, categoryId, accountId]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              sourceType: { $ref: '#/components/schemas/FinancialTimelineSourceType' }
+              sourceId: { $ref: '#/components/schemas/Uuid' }
+              type: { $ref: '#/components/schemas/FinancialTimelineType' }
+              title: { type: string }
+              amount: { $ref: '#/components/schemas/Money' }
+              date: { $ref: '#/components/schemas/DateTime' }
+              status: { type: string }
+              categoryId: { type: [string, 'null'], format: uuid }
+              accountId: { type: [string, 'null'], format: uuid }
+        latestTransactions:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [id, type, amount, description, occurredAt, paymentMethod, source, account, category]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              type: { $ref: '#/components/schemas/TransactionType' }
+              amount: { $ref: '#/components/schemas/Money' }
+              description: { type: string }
+              occurredAt: { $ref: '#/components/schemas/DateTime' }
+              paymentMethod:
+                oneOf:
+                  - $ref: '#/components/schemas/PaymentMethod'
+                  - type: 'null'
+              source: { $ref: '#/components/schemas/TransactionSource' }
+              account:
+                oneOf:
+                  - type: object
+                    required: [id, name]
+                    properties: { id: { $ref: '#/components/schemas/Uuid' }, name: { type: string } }
+                  - type: 'null'
+              category:
+                oneOf:
+                  - $ref: '#/components/schemas/CategoryReference'
+                  - type: 'null'
+        latestMovements:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            required: [id, sourceType, type, title, amount, date, accountId, sourceAccountId, destinationAccountId]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              sourceType: { type: string, enum: [transaction, account_transfer, account_balance_adjustment] }
+              type: { $ref: '#/components/schemas/FinancialTimelineType' }
+              title: { type: string }
+              amount: { $ref: '#/components/schemas/Money' }
+              date: { $ref: '#/components/schemas/DateTime' }
+              accountId: { type: [string, 'null'], format: uuid }
+              sourceAccountId: { type: [string, 'null'], format: uuid }
+              destinationAccountId: { type: [string, 'null'], format: uuid }
+    CategoryBudget:
+      type: object
+      required: [id, userId, categoryId, year, month, limitAmount, warningPercentage, isActive, createdAt, updatedAt, category]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        year: { type: integer }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        limitAmount: { $ref: '#/components/schemas/Money' }
+        warningPercentage: { type: integer, minimum: 1, maximum: 100 }
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+        category: { $ref: '#/components/schemas/CategoryReference' }
+    CreateCategoryBudgetRequest:
+      type: object
+      additionalProperties: false
+      required: [categoryId, year, month, limitAmount]
+      properties:
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        year: { type: integer, minimum: 1 }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        limitAmount: { $ref: '#/components/schemas/PositiveMoney' }
+        warningPercentage: { type: integer, minimum: 1, maximum: 100, default: 80 }
+    UpdateCategoryBudgetRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        year: { type: integer, minimum: 1 }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        limitAmount: { $ref: '#/components/schemas/PositiveMoney' }
+        warningPercentage: { type: integer, minimum: 1, maximum: 100 }
+        isActive: { type: boolean }
+    CategoryBudgetOverview:
+      type: object
+      required: [year, month, asOf, summary, budgets]
+      properties:
+        year: { type: integer }
+        month: { type: integer }
+        asOf: { $ref: '#/components/schemas/DateTime' }
+        summary: { $ref: '#/components/schemas/BudgetSummary' }
+        budgets:
+          type: array
+          items:
+            type: object
+            required: [id, category, limitAmount, warningPercentage, transactionSpent, creditCardSpent, spentAmount, remainingAmount, usagePercentage, status]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              category: { $ref: '#/components/schemas/CategoryReference' }
+              limitAmount: { $ref: '#/components/schemas/Money' }
+              warningPercentage: { type: integer }
+              transactionSpent: { $ref: '#/components/schemas/Money' }
+              creditCardSpent: { $ref: '#/components/schemas/Money' }
+              spentAmount: { $ref: '#/components/schemas/Money' }
+              remainingAmount: { $ref: '#/components/schemas/Money' }
+              usagePercentage: { $ref: '#/components/schemas/Money' }
+              status: { type: string, enum: [within_budget, near_limit, exceeded] }
+    FinancialGoal:
+      type: object
+      required: [id, name, description, targetAmount, currentAmount, remainingAmount, progressPercentage, targetDate, status, completedAt, canceledAt, isOverdue, daysRemaining, monthsRemaining, requiredMonthlyContribution]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        targetAmount: { $ref: '#/components/schemas/Money' }
+        currentAmount: { $ref: '#/components/schemas/Money' }
+        remainingAmount: { $ref: '#/components/schemas/Money' }
+        progressPercentage: { $ref: '#/components/schemas/Money' }
+        targetDate: { type: [string, 'null'], format: date-time }
+        status: { $ref: '#/components/schemas/FinancialGoalStatus' }
+        completedAt: { type: [string, 'null'], format: date-time }
+        canceledAt: { type: [string, 'null'], format: date-time }
+        isOverdue: { type: boolean }
+        daysRemaining: { type: [integer, 'null'], minimum: 0 }
+        monthsRemaining: { type: [integer, 'null'], minimum: 1 }
+        requiredMonthlyContribution:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+    CreateFinancialGoalRequest:
+      type: object
+      additionalProperties: false
+      required: [name, targetAmount]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+        targetAmount: { $ref: '#/components/schemas/PositiveMoney' }
+        targetDate: { type: [string, 'null'], format: date }
+        initialAmount:
+          type: string
+          pattern: '^\\d+\\.\\d{2}$'
+    UpdateFinancialGoalRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: [string, 'null'] }
+        targetAmount: { $ref: '#/components/schemas/PositiveMoney' }
+        targetDate: { type: [string, 'null'], format: date }
+        status: { $ref: '#/components/schemas/FinancialGoalStatus' }
+    GoalContribution:
+      type: object
+      required: [id, userId, goalId, type, amount, note, occurredAt, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        goalId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/GoalContributionType' }
+        amount: { $ref: '#/components/schemas/Money' }
+        note: { type: [string, 'null'] }
+        occurredAt: { $ref: '#/components/schemas/DateTime' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+    CreateGoalContributionRequest:
+      type: object
+      additionalProperties: false
+      required: [type, amount]
+      properties:
+        type: { $ref: '#/components/schemas/GoalContributionType' }
+        amount: { $ref: '#/components/schemas/PositiveMoney' }
+        occurredAt: { $ref: '#/components/schemas/Date' }
+        note: { type: [string, 'null'] }
+    FinancialGoalDetail:
+      allOf:
+        - $ref: '#/components/schemas/FinancialGoal'
+        - type: object
+          required: [recentContributions, contributionsCount]
+          properties:
+            recentContributions:
+              type: array
+              maxItems: 5
+              items: { $ref: '#/components/schemas/GoalContribution' }
+            contributionsCount: { type: integer, minimum: 0 }
+    FinancialGoalsOverview:
+      type: object
+      required: [asOf, summary, nextDeadline, goals]
+      properties:
+        asOf: { $ref: '#/components/schemas/DateTime' }
+        summary:
+          type: object
+          required: [activeGoals, completedGoals, canceledGoals, totalTargetAmount, totalCurrentAmount, totalRemainingAmount, averageProgressPercentage, overdueGoals]
+          properties:
+            activeGoals: { type: integer }
+            completedGoals: { type: integer }
+            canceledGoals: { type: integer }
+            totalTargetAmount: { $ref: '#/components/schemas/Money' }
+            totalCurrentAmount: { $ref: '#/components/schemas/Money' }
+            totalRemainingAmount: { $ref: '#/components/schemas/Money' }
+            averageProgressPercentage: { $ref: '#/components/schemas/Money' }
+            overdueGoals: { type: integer }
+        nextDeadline:
+          oneOf:
+            - type: object
+              required: [id, name, targetDate, currentAmount, remainingAmount]
+              properties:
+                id: { $ref: '#/components/schemas/Uuid' }
+                name: { type: string }
+                targetDate: { $ref: '#/components/schemas/DateTime' }
+                currentAmount: { $ref: '#/components/schemas/Money' }
+                remainingAmount: { $ref: '#/components/schemas/Money' }
+            - type: 'null'
+        goals:
+          type: array
+          items: { $ref: '#/components/schemas/FinancialGoal' }
+    Subscription:
+      type: object
+      required: [id, userId, name, amount, recurrenceAnchorDate, nextChargeDate, recurrence, categoryId, accountId, creditCardId, paymentMethod, autoRenew, isActive, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        recurrenceAnchorDate: { $ref: '#/components/schemas/DateTime' }
+        nextChargeDate: { $ref: '#/components/schemas/DateTime' }
+        recurrence: { $ref: '#/components/schemas/RecurrenceType' }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        creditCardId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        autoRenew: { type: boolean }
+        isActive: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    CreateSubscriptionRequest:
+      type: object
+      additionalProperties: false
+      required: [name, amount, nextChargeDate, recurrence]
+      properties:
+        name: { type: string, minLength: 1 }
+        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        nextChargeDate: { $ref: '#/components/schemas/Date' }
+        recurrence:
+          type: string
+          enum: [monthly, semiannual, yearly]
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        creditCardId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        autoRenew: { type: boolean, default: true }
+        isActive: { type: boolean, default: true }
+    UpdateSubscriptionRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1 }
+        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        nextChargeDate: { $ref: '#/components/schemas/Date' }
+        recurrence:
+          type: string
+          enum: [monthly, semiannual, yearly]
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        creditCardId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        autoRenew: { type: boolean }
+        isActive: { type: boolean }
+    SubscriptionCharge:
+      type: object
+      required: [id, userId, subscriptionId, status, name, amount, chargeDate, year, month, categoryId, accountId, creditCardId, paymentMethod, realizedTransactionId, realizedCreditCardPurchaseId, realizedAt, canceledAt, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        subscriptionId: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/SubscriptionChargeStatus' }
+        name: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        chargeDate: { $ref: '#/components/schemas/DateTime' }
+        year: { type: integer }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        categoryId: { type: [string, 'null'], format: uuid }
+        accountId: { type: [string, 'null'], format: uuid }
+        creditCardId: { type: [string, 'null'], format: uuid }
+        paymentMethod:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentMethod'
+            - type: 'null'
+        realizedTransactionId: { type: [string, 'null'], format: uuid }
+        realizedCreditCardPurchaseId: { type: [string, 'null'], format: uuid }
+        realizedAt: { type: [string, 'null'], format: date-time }
+        canceledAt: { type: [string, 'null'], format: date-time }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    SubscriptionsSummary:
+      type: object
+      required: [asOf, activeSubscriptions, monthlyEquivalent, pendingThisMonth, nextCharge]
+      properties:
+        asOf: { $ref: '#/components/schemas/DateTime' }
+        activeSubscriptions: { type: integer, minimum: 0 }
+        monthlyEquivalent: { $ref: '#/components/schemas/Money' }
+        pendingThisMonth: { $ref: '#/components/schemas/Money' }
+        nextCharge:
+          oneOf:
+            - type: object
+              required: [subscriptionId, subscriptionChargeId, name, amount, chargeDate, accountId, creditCardId]
+              properties:
+                subscriptionId: { $ref: '#/components/schemas/Uuid' }
+                subscriptionChargeId: { $ref: '#/components/schemas/Uuid' }
+                name: { type: string }
+                amount: { $ref: '#/components/schemas/Money' }
+                chargeDate: { $ref: '#/components/schemas/DateTime' }
+                accountId: { type: [string, 'null'], format: uuid }
+                creditCardId: { type: [string, 'null'], format: uuid }
+            - type: 'null'
+    RealizeSubscriptionChargeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        occurredAt: { $ref: '#/components/schemas/Date' }
+        accountId: { $ref: '#/components/schemas/Uuid' }
+        creditCardId: { $ref: '#/components/schemas/Uuid' }
+        categoryId: { $ref: '#/components/schemas/Uuid' }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+    RealizeSubscriptionChargeResponse:
+      type: object
+      required: [charge, transaction, creditCardPurchase]
+      properties:
+        charge: { $ref: '#/components/schemas/SubscriptionCharge' }
+        transaction:
+          oneOf:
+            - $ref: '#/components/schemas/Transaction'
+            - type: 'null'
+        creditCardPurchase:
+          oneOf:
+            - $ref: '#/components/schemas/CreditCardPurchase'
+            - type: 'null'
+    Notification:
+      type: object
+      required: [id, userId, category, type, severity, title, message, sourceType, sourceId, dedupeKey, scheduledFor, readAt, dismissedAt, resolvedAt, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        category: { $ref: '#/components/schemas/NotificationCategory' }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        severity: { $ref: '#/components/schemas/NotificationSeverity' }
+        title: { type: string }
+        message: { type: string }
+        sourceType: { $ref: '#/components/schemas/NotificationSourceType' }
+        sourceId: { type: string }
+        dedupeKey: { type: string }
+        scheduledFor: { type: [string, 'null'], format: date-time }
+        readAt: { type: [string, 'null'], format: date-time }
+        dismissedAt: { type: [string, 'null'], format: date-time }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+    NotificationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+        nextCursor: { type: [string, 'null'], format: uuid }
+    UnreadCount:
+      type: object
+      required: [unreadCount]
+      properties: { unreadCount: { type: integer, minimum: 0 } }
+    UpdatedCount:
+      type: object
+      required: [updatedCount]
+      properties: { updatedCount: { type: integer, minimum: 0 } }
+    NotificationPreference:
+      type: object
+      required: [category, enabled, leadDays]
+      properties:
+        category: { $ref: '#/components/schemas/NotificationCategory' }
+        enabled: { type: boolean }
+        leadDays: { type: [integer, 'null'], minimum: 0, maximum: 90 }
+    NotificationPreferences:
+      type: object
+      required: [preferences]
+      properties:
+        preferences:
+          type: array
+          items: { $ref: '#/components/schemas/NotificationPreference' }
+    UpdateNotificationPreferencesRequest:
+      type: object
+      additionalProperties: false
+      required: [preferences]
+      properties:
+        preferences:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [category, enabled]
+            properties:
+              category: { $ref: '#/components/schemas/NotificationCategory' }
+              enabled: { type: boolean }
+              leadDays: { type: [integer, 'null'], minimum: 0, maximum: 90 }
+    Activity:
+      type: object
+      required: [id, userId, type, entityType, entityId, title, description, metadata, occurredAt, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/ActivityType' }
+        entityType: { $ref: '#/components/schemas/ActivityEntityType' }
+        entityId: { type: string }
+        title: { type: string }
+        description: { type: [string, 'null'] }
+        metadata:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: 'null'
+        occurredAt: { $ref: '#/components/schemas/DateTime' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+    ActivityPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+        nextCursor: { type: [string, 'null'], format: uuid }
+    DeletedResponse:
+      type: object
+      required: [deleted]
+      properties: { deleted: { const: true } }
+    ArchivedResponse:
+      type: object
+      required: [archived]
+      properties: { archived: { const: true } }
+    CanceledResponse:
+      type: object
+      required: [canceled]
+      properties: { canceled: { const: true } }
+    DismissedResponse:
+      type: object
+      required: [dismissed]
+      properties: { dismissed: { const: true } }
