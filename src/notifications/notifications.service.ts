@@ -42,8 +42,57 @@ export class NotificationsService {
   upsertActive(db: Db, userId: string, input: NotificationUpsert) {
     return db.notification.upsert({ where: { userId_dedupeKey: { userId, dedupeKey: input.dedupeKey } }, create: { userId, ...input }, update: { category: input.category, type: input.type, severity: input.severity, title: input.title, message: input.message, sourceType: input.sourceType, sourceId: input.sourceId, scheduledFor: input.scheduledFor ?? null, resolvedAt: null } });
   }
-  resolveSource(db: Db, userId: string, sourceType: NotificationSourceType, sourceId: string, types: NotificationType[], now: Date) {
-    return db.notification.updateMany({ where: { userId, sourceType, sourceId, type: { in: types }, resolvedAt: null }, data: { resolvedAt: now } });
+  resolveSource(
+    db: Db,
+    userId: string,
+    sourceType: NotificationSourceType,
+    sourceId: string,
+    now: Date,
+  ) {
+    return db.notification.updateMany({
+      where: { userId, sourceType, sourceId, resolvedAt: null },
+      data: { resolvedAt: now },
+    });
+  }
+
+  resolveSourceExceptDedupeKey(
+    db: Db,
+    userId: string,
+    sourceType: NotificationSourceType,
+    sourceId: string,
+    activeDedupeKey: string,
+    now: Date,
+  ) {
+    return db.notification.updateMany({
+      where: {
+        userId,
+        sourceType,
+        sourceId,
+        dedupeKey: { not: activeDedupeKey },
+        resolvedAt: null,
+      },
+      data: { resolvedAt: now },
+    });
+  }
+
+  resolveTypesExcept(
+    db: Db,
+    userId: string,
+    sourceType: NotificationSourceType,
+    sourceId: string,
+    activeType: NotificationType,
+    now: Date,
+  ) {
+    return db.notification.updateMany({
+      where: {
+        userId,
+        sourceType,
+        sourceId,
+        type: { not: activeType },
+        resolvedAt: null,
+      },
+      data: { resolvedAt: now },
+    });
   }
   private async requireOwned(userId: string, id: string) { if (!await this.prisma.notification.findFirst({ where: { id, userId }, select: { id: true } })) throw new NotFoundException('Notification not found'); }
   private serialize(row: any) { return { ...row, scheduledFor: row.scheduledFor?.toISOString() ?? null, readAt: row.readAt?.toISOString() ?? null, dismissedAt: row.dismissedAt?.toISOString() ?? null, resolvedAt: row.resolvedAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() }; }

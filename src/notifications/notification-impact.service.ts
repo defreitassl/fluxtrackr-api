@@ -16,7 +16,9 @@ export class NotificationImpactService {
     if (!categoryId) return Promise.resolve();
     return this.run('budget category/month', `${categoryId}:${year}-${month}`, async () => {
       const budgets = await this.evaluator.findBudgetIds(userId, categoryId, year, month);
-      for (const budgetId of budgets) await this.evaluator.evaluateBudget(userId, budgetId, asOf);
+      for (const budgetId of budgets) {
+        await this.run('budget', budgetId, () => this.evaluator.evaluateBudget(userId, budgetId, asOf));
+      }
     });
   }
   evaluateGoal(userId: string, goalId: string, asOf = new Date()) { return this.run('goal', goalId, () => this.evaluator.evaluateGoal(userId, goalId, asOf)); }
