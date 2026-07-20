@@ -18,8 +18,8 @@ export function readDashboardFixtureEnvironment(
     throw new Error('Set ALLOW_DEV_FIXTURES=true to run dashboard development fixtures.');
   }
 
-  const populatedEmail = required(environment, 'DEV_FIXTURE_POPULATED_EMAIL').toLowerCase();
-  const emptyEmail = required(environment, 'DEV_FIXTURE_EMPTY_EMAIL').toLowerCase();
+  const populatedEmail = readFixtureEmail(environment, 'DEV_FIXTURE_POPULATED_EMAIL');
+  const emptyEmail = readFixtureEmail(environment, 'DEV_FIXTURE_EMPTY_EMAIL');
   const password = required(environment, 'DEV_FIXTURE_PASSWORD');
   const userNamePrefix = required(environment, 'DEV_FIXTURE_USER_NAME_PREFIX');
   const bootstrapEmail = environment.BOOTSTRAP_USER_EMAIL?.trim().toLowerCase();
@@ -43,4 +43,20 @@ function required(environment: Environment, name: string) {
   }
 
   return value;
+}
+
+function readFixtureEmail(environment: Environment, name: string) {
+  const rawValue = environment[name];
+
+  if (!rawValue || rawValue.trim() !== rawValue) {
+    throw new Error(`${name} must be a fixture email ending in @fluxtrackr.test.`);
+  }
+
+  const email = rawValue.toLowerCase();
+
+  if (!/^[^\s@]+@fluxtrackr\.test$/.test(email)) {
+    throw new Error(`${name} must be a fixture email ending in @fluxtrackr.test.`);
+  }
+
+  return email;
 }

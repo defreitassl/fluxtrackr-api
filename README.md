@@ -66,9 +66,10 @@ npm run prisma:seed:dashboard-dev
 
 O comando é bloqueado quando `NODE_ENV=production` ou quando a confirmação
 explícita `ALLOW_DEV_FIXTURES=true` não é fornecida. Os e-mails das fixtures
-não podem coincidir entre si nem com `BOOTSTRAP_USER_EMAIL`; a execução remove
-e recria apenas esses usuários em uma transação serializável. Não versione
-credenciais ou endereços reais.
+devem terminar exatamente em `@fluxtrackr.test`, não podem conter espaços, nem
+coincidir entre si ou com `BOOTSTRAP_USER_EMAIL`; a execução remove e recria
+apenas esses usuários em uma transação serializável. Não versione credenciais
+ou endereços reais.
 
 Rode a API:
 
