@@ -1,3 +1,4 @@
+import { Transform } from 'class-transformer';
 import { IsDecimal, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateAccountBalanceAdjustmentDto {
@@ -5,6 +6,7 @@ export class CreateAccountBalanceAdjustmentDto {
   newBalance!: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
   @IsString()
   @MinLength(1)
   reason?: string;

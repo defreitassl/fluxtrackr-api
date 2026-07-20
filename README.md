@@ -233,6 +233,16 @@ Ajuste: nao e receita; nao e despesa; corrige o saldo real e mantem historico.
 
 O saldo usa `initialBalance + receitas - despesas + recebidas - enviadas + ajustes`, com `Prisma.Decimal` e corte por `asOf`. Transferencias e ajustes sao atomicos, nao criam `Transaction`, aparecem na Timeline como informativos e entram em `latestMovements`; `latestTransactions` permanece temporariamente como campo legado.
 
+`POST /accounts/:id/balance-adjustments` recebe somente `newBalance` (string
+decimal, inclusive negativo ou zero) e `reason` opcional. A API remove espaços
+externos do motivo e converte texto vazio em ausência de motivo antes de
+persistir. Ajuste com diferença zero permanece válido: saldo anterior, novo
+saldo e diferença continuam registrados como snapshot imutável.
+
+`GET /accounts/:id/balance-adjustments` retorna esses snapshots em ordem
+decrescente. Nenhuma dessas rotas altera `initialBalance` ou regras financeiras
+já existentes.
+
 ## Orçamentos mensais por categoria
 
 `CategoryBudget` define um limite analítico mensal, ativo por padrão, para uma categoria `expense` ou `both` do próprio usuário. Não bloqueia movimentações, não altera saldo e não entra no comprometido. `DELETE /category-budgets/:id` apenas arquiva; `GET /category-budgets?isActive=false` preserva consulta histórica.
