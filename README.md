@@ -41,6 +41,35 @@ O seed exige `BOOTSTRAP_USER_NAME`, `BOOTSTRAP_USER_EMAIL` e
 `BOOTSTRAP_USER_PASSWORD`. Ele nunca usa credenciais padrao e deve ser usado
 somente para bootstrap controlado, nunca como parte do deploy.
 
+### Fixtures locais de Dashboard
+
+Para validar Dashboard e Timeline com dados reproduzíveis, use o seed separado
+de desenvolvimento. Ele não substitui o bootstrap: prepara exclusivamente dois
+usuários dedicados, um populado e um vazio.
+
+Defina somente em seu ambiente local:
+
+```env
+ALLOW_DEV_FIXTURES=true
+DEV_FIXTURE_POPULATED_EMAIL=
+DEV_FIXTURE_EMPTY_EMAIL=
+DEV_FIXTURE_PASSWORD=
+DEV_FIXTURE_USER_NAME_PREFIX=FluxTrackr Dev
+```
+
+Em seguida:
+
+```bash
+npm run prisma:seed
+npm run prisma:seed:dashboard-dev
+```
+
+O comando é bloqueado quando `NODE_ENV=production` ou quando a confirmação
+explícita `ALLOW_DEV_FIXTURES=true` não é fornecida. Os e-mails das fixtures
+não podem coincidir entre si nem com `BOOTSTRAP_USER_EMAIL`; a execução remove
+e recria apenas esses usuários em uma transação serializável. Não versione
+credenciais ou endereços reais.
+
 Rode a API:
 
 ```bash
