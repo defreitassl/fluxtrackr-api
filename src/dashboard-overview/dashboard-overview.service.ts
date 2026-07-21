@@ -283,6 +283,15 @@ export class DashboardOverviewService {
     return {
       asOf: asOf.toISOString(),
       ...financialSummary,
+      balance: {
+        ...financialSummary.balance,
+        committedBreakdown: {
+          creditCardInvoices: committedInvoices.toFixed(2),
+          fixedExpenses: committedOccurrences.toFixed(2),
+          financialEvents: committedEvents.toFixed(2),
+          subscriptions: committedSubscriptions.toFixed(2),
+        },
+      },
       forecast30Days: {
         projectedFinalBalance: forecast.projectedFinalBalance,
         minimumProjectedBalance: forecast.minimumProjectedBalance,

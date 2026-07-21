@@ -190,6 +190,12 @@ describe('DashboardOverviewService composition', () => {
     });
     const result = await context.service.getOverview('owner', { asOf: asOf.toISOString() });
     assert.equal(result.balance.committed, '100.00');
+    assert.deepEqual(result.balance.committedBreakdown, {
+      creditCardInvoices: '30.00',
+      fixedExpenses: '30.00',
+      financialEvents: '40.00',
+      subscriptions: '0.00',
+    });
     assert.equal(context.calls.invoices.select.installments.select.installmentAmount, true);
   });
 

@@ -2523,11 +2523,19 @@ components:
         asOf: { $ref: '#/components/schemas/DateTime' }
         balance:
           type: object
-          required: [total, committed, availableToSpend]
+          required: [total, committed, availableToSpend, committedBreakdown]
           properties:
             total: { $ref: '#/components/schemas/Money' }
             committed: { $ref: '#/components/schemas/Money' }
             availableToSpend: { $ref: '#/components/schemas/Money' }
+            committedBreakdown:
+              type: object
+              required: [creditCardInvoices, fixedExpenses, financialEvents, subscriptions]
+              properties:
+                creditCardInvoices: { $ref: '#/components/schemas/Money' }
+                fixedExpenses: { $ref: '#/components/schemas/Money' }
+                financialEvents: { $ref: '#/components/schemas/Money' }
+                subscriptions: { $ref: '#/components/schemas/Money' }
         dailySpending:
           type: object
           required: [recommended, spentToday, remainingToday, daysRemainingInMonth, status]
