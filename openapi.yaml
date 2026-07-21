@@ -1845,7 +1845,7 @@ components:
       required: [type, amount, description, source]
       properties:
         type: { $ref: '#/components/schemas/TransactionType' }
-        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        amount: { type: number, minimum: 0.01, maximum: 9999999999.99, multipleOf: 0.01 }
         description: { type: string, minLength: 1 }
         categoryId: { $ref: '#/components/schemas/Uuid' }
         accountId: { $ref: '#/components/schemas/Uuid' }
@@ -1858,7 +1858,7 @@ components:
       minProperties: 1
       properties:
         type: { $ref: '#/components/schemas/TransactionType' }
-        amount: { type: number, minimum: 0.01, multipleOf: 0.01 }
+        amount: { type: number, minimum: 0.01, maximum: 9999999999.99, multipleOf: 0.01 }
         description: { type: string, minLength: 1 }
         categoryId: { type: [string, 'null'], format: uuid }
         accountId: { type: [string, 'null'], format: uuid }

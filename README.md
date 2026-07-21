@@ -131,6 +131,15 @@ resposta e erros HTTP para uso por clientes, coleções de teste e geradores de 
 - `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `POST /notifications/read-all` e `DELETE /notifications/:id`
 - `GET/PATCH /notification-preferences` e `GET /activities`
 
+## Validação de transações
+
+Em `POST /transactions` e `PATCH /transactions/:id`, `amount` deve ser
+positivo, ter no máximo duas casas decimais e não pode exceder
+`9.999.999.999,99` (`9_999_999_999.99`). A API remove espaços no início e no
+fim de `description` antes de validar; uma descrição vazia após essa
+normalização retorna `400 Bad Request`. Em `PATCH`, essas regras se aplicam aos
+campos enviados.
+
 ## Compras no cartao e faturas
 
 A compra cria o compromisso, suas parcelas e as faturas mensais em uma unica transacao Prisma. Ela nao cria uma `Transaction`; isso fica reservado ao futuro pagamento da fatura.
