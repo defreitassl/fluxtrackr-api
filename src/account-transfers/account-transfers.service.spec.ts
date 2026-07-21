@@ -7,7 +7,7 @@ import { AccountTransfersService } from './account-transfers.service';
 const dto = (overrides: Record<string, unknown> = {}): any => ({
   sourceAccountId: '00000000-0000-4000-8000-000000000001',
   destinationAccountId: '00000000-0000-4000-8000-000000000002',
-  amount: '250.00', description: 'Reserva', occurredAt: '2026-07-15T14:00:00.000Z',
+  amount: '250.00', description: 'Reserva',
   ...overrides,
 });
 
@@ -56,11 +56,10 @@ describe('AccountTransfersService', () => {
     await assert.rejects(() => harness().service.create('user', dto({ amount: '-1' })), BadRequestException);
   });
 
-  it('rejects future transfers and permits past transfers with a controlled clock', async () => {
+  it('uses the controlled API clock as the transfer occurrence time', async () => {
     const context = harness({ now: () => new Date('2026-07-15T14:00:00.000Z') });
-    await assert.rejects(() => context.service.create('user', dto({ occurredAt: '2026-07-15T14:00:00.001Z' })), BadRequestException);
-    const past = await context.service.create('user', dto({ occurredAt: '2026-07-15T13:59:59.999Z' }));
-    assert.equal(past.occurredAt.toISOString(), '2026-07-15T13:59:59.999Z');
+    const transfer = await context.service.create('user', dto());
+    assert.equal(transfer.occurredAt.toISOString(), '2026-07-15T14:00:00.000Z');
   });
 
   it('rolls back failures and retries P2034', async () => {

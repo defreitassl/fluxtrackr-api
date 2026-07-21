@@ -233,6 +233,13 @@ Ajuste: nao e receita; nao e despesa; corrige o saldo real e mantem historico.
 
 O saldo usa `initialBalance + receitas - despesas + recebidas - enviadas + ajustes`, com `Prisma.Decimal` e corte por `asOf`. Transferencias e ajustes sao atomicos, nao criam `Transaction`, aparecem na Timeline como informativos e entram em `latestMovements`; `latestTransactions` permanece temporariamente como campo legado.
 
+Todos os valores persistidos neste fluxo respeitam `Decimal(12,2)`: de
+`-9.999.999.999,99` a `9.999.999.999,99`, com no máximo duas casas. Valores
+fora dessa faixa ou formatos decimais inválidos são rejeitados com `400` antes
+do Prisma. `POST /account-transfers` recebe origem, destino, valor positivo e
+descrição opcional; a API remove espaços externos da descrição, omite texto
+vazio e usa o horário atual. Não aceita `occurredAt`.
+
 `POST /accounts/:id/balance-adjustments` recebe somente `newBalance` (string
 decimal, inclusive negativo ou zero) e `reason` opcional. A API remove espaços
 externos do motivo e converte texto vazio em ausência de motivo antes de

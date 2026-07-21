@@ -28,4 +28,12 @@ describe('CreateAccountBalanceAdjustmentDto', () => {
     assert.equal(dto.reason, undefined);
     assert.equal(dto.newBalance, '-250.75');
   });
+
+  it('accepts Decimal(12,2) bounds and rejects overflow before Prisma', async () => {
+    assert.equal((await parse({ newBalance: '9999999999.99' })).errors.length, 0);
+    assert.equal((await parse({ newBalance: '-9999999999.99' })).errors.length, 0);
+    for (const newBalance of ['10000000000', '-10000000000', '1.001', '1e3']) {
+      assert.ok((await parse({ newBalance })).errors.length > 0, newBalance);
+    }
+  });
 });

@@ -3,6 +3,8 @@ import {
   IsBoolean,
   IsEnum,
   IsNumber,
+  Max,
+  Min,
   IsOptional,
   IsString,
   MinLength,
@@ -42,6 +44,8 @@ export class CreateAccountDto {
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(-9_999_999_999.99)
+  @Max(9_999_999_999.99)
   initialBalance!: number;
 
   @IsOptional()

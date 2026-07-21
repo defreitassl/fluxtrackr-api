@@ -17,10 +17,7 @@ export class AccountTransfersService {
   ) {}
 
   async create(userId: string, dto: CreateAccountTransferDto) {
-    const occurredAt = dto.occurredAt ? new Date(dto.occurredAt) : this.now();
-    if (occurredAt > this.now()) {
-      throw new BadRequestException('Future account transfers are not supported');
-    }
+    const occurredAt = this.now();
     if (dto.sourceAccountId === dto.destinationAccountId) {
       throw new BadRequestException('Source and destination accounts must be different');
     }
