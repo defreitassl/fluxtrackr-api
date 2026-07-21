@@ -18,7 +18,7 @@ function harness() {
       updateMany: async ({ where, data }: any) => { calls.archiveBudgets = { where, data }; budgets.filter((item) => item.categoryId === where.categoryId && item.isActive).forEach((item) => Object.assign(item, data)); },
     },
   };
-  const prisma: any = { $transaction: async (operation: any) => operation(tx), category: tx.category };
+  const prisma: any = { $transaction: async (operation: any) => operation(tx), category: { ...tx.category, findMany: async ({ where }: any) => { calls.listWhere = where; return []; } } };
   return { service: new CategoriesService(prisma), category, budgets, calls };
 }
 
@@ -43,5 +43,13 @@ describe('CategoriesService archive lifecycle', () => {
     const migration = readFileSync(join(process.cwd(), 'prisma/migrations/20260715193000_archive_categories_safely/migration.sql'), 'utf8');
     assert.match(migration, /ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true/);
     assert.doesNotMatch(migration, /DELETE|DROP/i);
+  });
+
+  it('keeps active-by-default while allowing an explicit all-status query', async () => {
+    const target = harness();
+    await target.service.findMany('owner', {});
+    assert.equal(target.calls.listWhere.isActive, true);
+    await target.service.findMany('owner', { includeArchived: true });
+    assert.equal(target.calls.listWhere.isActive, undefined);
   });
 });

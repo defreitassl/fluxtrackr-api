@@ -19,6 +19,7 @@ export class TransactionsService {
     await this.ensureCategoryBelongsToUser(
       userId,
       createTransactionDto.categoryId,
+      createTransactionDto.type,
     );
     await this.ensureAccountBelongsToUser(userId, createTransactionDto.accountId);
 
@@ -91,10 +92,15 @@ export class TransactionsService {
     id: string,
     updateTransactionDto: UpdateTransactionDto,
   ) {
-    await this.ensureCategoryBelongsToUser(
-      userId,
-      updateTransactionDto.categoryId,
-    );
+    const current = await this.findOne(userId, id);
+    const nextType = updateTransactionDto.type ?? current.type;
+    if (updateTransactionDto.categoryId !== undefined) {
+      await this.ensureCategoryBelongsToUser(userId, updateTransactionDto.categoryId, nextType);
+    } else if (updateTransactionDto.type !== undefined && current.categoryId) {
+      // Uma categoria histórica arquivada pode permanecer em edições de outros
+      // campos, mas não pode sustentar uma nova classificação/tipo.
+      await this.ensureCategoryBelongsToUser(userId, current.categoryId, nextType);
+    }
     await this.ensureAccountBelongsToUser(
       userId,
       updateTransactionDto.accountId,
@@ -163,6 +169,7 @@ export class TransactionsService {
   private async ensureCategoryBelongsToUser(
     userId: string,
     categoryId?: string | null,
+    transactionType?: 'income' | 'expense',
   ) {
     if (!categoryId) {
       return;
@@ -172,6 +179,8 @@ export class TransactionsService {
       where: {
         id: categoryId,
         userId,
+        isActive: true,
+        ...(transactionType ? { type: { in: [transactionType, 'both'] } } : {}),
       },
       select: {
         id: true,

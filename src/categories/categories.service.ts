@@ -32,7 +32,11 @@ export class CategoriesService {
 
   findMany(userId: string, query: ListCategoriesDto = {}) {
     return this.prisma.category.findMany({
-      where: { userId, isActive: query.isActive ?? true, type: query.type },
+      where: {
+        userId,
+        isActive: query.includeArchived && query.isActive === undefined ? undefined : query.isActive ?? true,
+        type: query.type,
+      },
       orderBy: { name: 'asc' },
     });
   }

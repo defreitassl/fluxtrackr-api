@@ -204,6 +204,7 @@ paths:
       summary: Lista categorias; por padrão, somente as ativas
       parameters:
         - $ref: '#/components/parameters/IsActiveQuery'
+        - $ref: '#/components/parameters/IncludeArchivedQuery'
         - name: type
           in: query
           schema:
@@ -1617,6 +1618,11 @@ components:
     IsActiveQuery:
       name: isActive
       in: query
+      schema: { type: boolean }
+    IncludeArchivedQuery:
+      name: includeArchived
+      in: query
+      description: Inclui categorias ativas e arquivadas quando `isActive` não for informado.
       schema: { type: boolean }
     StartDateTimeQuery:
       name: startDate

@@ -260,7 +260,9 @@ já existentes.
 
 ## Ciclo de vida de categorias
 
-Categorias são arquiváveis. `DELETE /categories/:id` e `PATCH` com `isActive:false` definem `Category.isActive:false` e arquivam, na mesma transação, todos os `CategoryBudget` ativos associados. Não há exclusão física e histórico financeiro permanece consultável. `GET /categories` retorna somente ativas por padrão; aceita `isActive` e `type`. Uma categoria com orçamento ativo não pode mudar para `income`. Orçamento ativo exige categoria ativa que aceite despesas; overview de orçamentos e `budgetSummary` ignoram tanto orçamento quanto categoria arquivados.
+Categorias são arquiváveis. `DELETE /categories/:id` e `PATCH` com `isActive:false` definem `Category.isActive:false` e arquivam, na mesma transação, todos os `CategoryBudget` ativos associados. Não há exclusão física e histórico financeiro permanece consultável. `GET /categories` retorna somente ativas por padrão; aceita `isActive`, `type` e `includeArchived=true` para consultar ativas e arquivadas juntas. Uma categoria com orçamento ativo não pode mudar para `income`. Orçamento ativo exige categoria ativa que aceite despesas; overview de orçamentos e `budgetSummary` ignoram tanto orçamento quanto categoria arquivados.
+
+Criação e alteração de classificação de `Transaction` aceitam somente categoria ativa do próprio usuário compatível com o tipo: `income` ou `both` para receita, `expense` ou `both` para despesa. O vínculo histórico com categoria arquivada permanece quando a transação é editada sem reclassificação.
 
 ## Metas financeiras
 

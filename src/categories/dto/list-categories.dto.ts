@@ -8,6 +8,12 @@ export class ListCategoriesDto {
   @IsBoolean()
   isActive?: boolean;
 
+  /** Inclui ativas e arquivadas quando nenhum status específico foi escolhido. */
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' ? true : value === 'false' ? false : value)
+  @IsBoolean()
+  includeArchived?: boolean;
+
   @IsOptional()
   @IsEnum(CategoryTypeDto)
   type?: CategoryTypeDto;
