@@ -1,9 +1,10 @@
 import 'reflect-metadata';
 import { environment } from './config/env';
 
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { startResourceMetricsInterval } from './observability/resource-metrics';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -34,6 +35,10 @@ async function bootstrap() {
     }),
   );
   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
+  startResourceMetricsInterval(
+    new Logger('ResourceMetrics'),
+    environment.resourceMetricsIntervalMinutes,
+  );
 }
 
 void bootstrap();

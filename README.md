@@ -22,6 +22,23 @@ inicia com segredo JWT padrao. `WEB_ORIGIN` e uma lista opcional, separada por
 virgulas, das origens web autorizadas pelo CORS; mantenha-a vazia enquanto nao
 houver frontend web.
 
+### Banco e observabilidade
+
+Uma replica da API usa por padrao um pool PostgreSQL de cinco conexoes. Os
+limites sao configurados pelo adapter Prisma/pg e nao registram a URL do banco:
+
+| Variavel | Padrao | Limite |
+| --- | ---: | --- |
+| `DATABASE_POOL_MAX` | `5` | inteiro de 1 a 20 |
+| `DATABASE_POOL_IDLE_TIMEOUT_MS` | `10000` | inteiro de 1000 a 300000 |
+| `DATABASE_CONNECTION_TIMEOUT_MS` | `5000` | inteiro de 1000 a 60000 |
+| `RESOURCE_METRICS_INTERVAL_MINUTES` | `0` | inteiro maior ou igual a 0 |
+
+`RESOURCE_METRICS_INTERVAL_MINUTES=0` desativa as metricas periodicas. Use
+`15` ou `30` apenas durante diagnostico: o log estruturado inclui uso de
+memoria, CPU e uptime, mas nunca variaveis de ambiente, URLs, tokens ou dados
+financeiros. O timer usa `unref()` e nao impede o encerramento normal.
+
 ## Rodar localmente
 
 Suba o PostgreSQL:
@@ -96,6 +113,11 @@ do start, healthcheck em `GET /health` e reinicio em falha. A configuracao no
 Railway ainda exige `DATABASE_URL` referenciando o servico PostgreSQL e um
 `JWT_SECRET` longo e aleatorio. Consulte o guia operacional do workspace em
 [`../docs/technical/railway-deployment.md`](../docs/technical/railway-deployment.md).
+
+Mantenha uma unica replica nesta etapa. Nao habilite Railway Serverless, Railway
+Cron, Redis, filas, PgBouncer ou um segundo processo Prisma. O health check
+continua executando `SELECT 1` para a ativacao do deploy; ele nao publica
+metricas internas.
 
 ## Contrato OpenAPI
 
@@ -297,11 +319,11 @@ npm test
 
 Atividades são auditoria funcional: são gravadas na mesma transação da ação de domínio e fazem rollback junto dela. `occurredAt` é o instante real da ação do usuário; quando houver uma data financeira distinta, `metadata.effectiveDate` guarda a data em UTC. Valores monetários em metadata são strings com duas casas.
 
-Notificações são projeções derivadas. A integração imediata ocorre somente depois do commit e uma falha é registrada sem desfazer a operação financeira. O bootstrap e o cron horário (`15 * * * *`, UTC) continuam reconciliando o estado persistido. Preferências desativadas impedem apenas novas ativações: alertas já existentes ainda são resolvidos quando a condição deixa de existir. Marcar como lida ou dispensar preserva o primeiro timestamp.
+Notificações são projeções derivadas. A integração imediata ocorre somente depois do commit e uma falha é registrada sem desfazer a operação financeira. O bootstrap e a reconciliação diária (`0 15 0 * * *`, UTC) continuam reconciliando o estado persistido. A reconciliação busca somente fontes candidatas atuais e IDs com alertas ainda não resolvidos; preferências desativadas impedem apenas novas ativações, mas alertas existentes ainda são resolvidos quando a condição deixa de existir. Marcar como lida ou dispensar preserva o primeiro timestamp.
 
 ## Assinaturas financeiras
 
-`Subscription` é um template recorrente; `SubscriptionCharge` é uma cobrança persistida com snapshot e estado próprio. `recurrenceAnchorDate` é a base UTC da série; `nextChargeDate` é somente o ponteiro da próxima pendência. As cobranças são materializadas de forma idempotente para o mês UTC atual e 13 seguintes, no bootstrap, às 00:10 UTC e após alterações do template. Assinaturas inativas não geram cobranças nem são reativadas automaticamente; somente `PATCH {"isActive":true}` reativa. Somente `monthly`, `semiannual` e `yearly` são aceitas; cada assinatura usa exatamente uma conta ativa (com método não `credit`) ou um cartão ativo (sem método).
+`Subscription` é um template recorrente; `SubscriptionCharge` é uma cobrança persistida com snapshot e estado próprio. `recurrenceAnchorDate` é a base UTC da série; `nextChargeDate` é somente o ponteiro da próxima pendência. As cobranças são materializadas para o mês UTC atual e os 13 seguintes no bootstrap, às 00:10 UTC e após alterações do template. A reconciliação lê cada assinatura uma vez, cria somente lacunas, atualiza apenas snapshots pendentes diferentes, cancela pendências stale em lote e não toca em realizadas ou canceladas. Assinaturas inativas não geram cobranças nem são reativadas automaticamente; somente `PATCH {"isActive":true}` reativa. Somente `monthly`, `semiannual` e `yearly` são aceitas; cada assinatura usa exatamente uma conta ativa (com método não `credit`) ou um cartão ativo (sem método).
 
 Rotas JWT: `POST/GET/PATCH/DELETE /subscriptions`, `GET /subscriptions/summary`, `GET /subscription-charges`, `GET /subscription-charges/:id`, `POST /subscription-charges/:id/realize` e `POST /subscription-charges/:id/cancel`.
 
