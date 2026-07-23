@@ -45,9 +45,30 @@ export class SubscriptionChargesService {
       await this.refreshAfterTransition(tx, charge.subscription, realizedAt);
       return { charge: await tx.subscriptionCharge.findUniqueOrThrow({ where: { id } }), transaction: null, creditCardPurchase };
     });
-    return result.then(async (completed) => { await this.impacts?.evaluateSubscriptionCharge(userId, id); return completed; });
+    return result.then(async (completed) => {
+      await this.impacts?.evaluateSubscriptionCharge(userId, id);
+      if (completed.transaction) {
+        await this.impacts?.evaluateBudgetsForCategoryMonth(
+          userId,
+          completed.transaction.categoryId,
+          completed.transaction.occurredAt.getUTCFullYear(),
+          completed.transaction.occurredAt.getUTCMonth() + 1,
+        );
+      }
+      await this.evaluateCreditCardPurchaseImpacts(userId, completed.creditCardPurchase);
+      return completed;
+    });
   }
   async cancel(userId: string, id: string) { const now = this.now(); const result = await this.runSerializableTransaction(async (tx) => { const charge = await tx.subscriptionCharge.findFirst({ where: { id, userId }, include: { subscription: true } }); if (!charge) throw new NotFoundException('Subscription charge not found'); if (charge.status !== 'pending') throw new ConflictException('Only pending subscription charges can be canceled'); const updated = await tx.subscriptionCharge.update({ where: { id }, data: { status: 'canceled', canceledAt: now } }); if (this.activities) await this.activities.record(tx, { userId, type: 'subscription_charge_canceled', entityType: 'subscription_charge', entityId: id, title: 'Cobrança de assinatura cancelada', description: charge.name, metadata: { amount: charge.amount.toFixed(2), subscriptionId: charge.subscriptionId, effectiveDate: charge.chargeDate.toISOString() }, occurredAt: now }); await this.refreshAfterTransition(tx, charge.subscription, now); return updated; }); await this.impacts?.evaluateSubscriptionCharge(userId, id); return result; }
+  private async evaluateCreditCardPurchaseImpacts(userId: string, purchase: any) {
+    if (!this.impacts || !purchase) return;
+    for (const installment of purchase.installments ?? []) {
+      const invoice = installment.invoice;
+      if (!invoice) continue;
+      await this.impacts.evaluateInvoice(userId, invoice.id);
+      await this.impacts.evaluateBudgetsForCategoryMonth(userId, installment.categoryId, invoice.year, invoice.month);
+    }
+  }
   private async refreshAfterTransition(tx: Prisma.TransactionClient, subscription: any, reference: Date) { if (subscription.autoRenew && subscription.isActive) await this.materializer.materializeSubscription(subscription, reference, tx); else await this.materializer.refreshNextCharge(subscription.id, reference, tx); }
   private async validateResolved(tx: Prisma.TransactionClient, userId: string, accountId: string | null | undefined, creditCardId: string | null | undefined, categoryId: string | null | undefined, paymentMethod: any) {
     if (!!accountId === !!creditCardId) throw new BadRequestException('Subscription charge requires exactly one accountId or creditCardId');

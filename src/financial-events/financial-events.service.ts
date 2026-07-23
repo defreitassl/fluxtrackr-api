@@ -306,7 +306,31 @@ export class FinancialEventsService {
     });
     await this.impacts?.evaluateFinancialEvent(userId, id);
     if (result.nextEvent) await this.impacts?.evaluateFinancialEvent(userId, result.nextEvent.id);
+    if (result.transaction) {
+      await this.impacts?.evaluateBudgetsForCategoryMonth(
+        userId,
+        result.transaction.categoryId,
+        result.transaction.occurredAt.getUTCFullYear(),
+        result.transaction.occurredAt.getUTCMonth() + 1,
+      );
+    }
+    await this.evaluateCreditCardPurchaseImpacts(userId, result.creditCardPurchase);
     return result;
+  }
+
+  private async evaluateCreditCardPurchaseImpacts(userId: string, purchase: any) {
+    if (!this.impacts || !purchase) return;
+    for (const installment of purchase.installments ?? []) {
+      const invoice = installment.invoice;
+      if (!invoice) continue;
+      await this.impacts.evaluateInvoice(userId, invoice.id);
+      await this.impacts.evaluateBudgetsForCategoryMonth(
+        userId,
+        installment.categoryId,
+        invoice.year,
+        invoice.month,
+      );
+    }
   }
 
   private async validateEventData(

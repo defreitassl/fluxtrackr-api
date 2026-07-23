@@ -1,12 +1,16 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationImpactService } from '../notifications/notification-impact.service';
 import { ListFixedOccurrencesDto } from './dto/list-fixed-occurrences.dto';
 import { RealizeFixedOccurrenceDto } from './dto/realize-fixed-occurrence.dto';
 
 @Injectable()
 export class FixedOccurrencesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly impacts?: NotificationImpactService,
+  ) {}
 
   findMany(userId: string, filters: ListFixedOccurrencesDto) {
     return this.prisma.fixedOccurrence.findMany({
@@ -31,8 +35,8 @@ export class FixedOccurrencesService {
     return occurrence;
   }
 
-  realize(userId: string, id: string, dto: RealizeFixedOccurrenceDto) {
-    return this.runSerializableTransaction(async (tx) => {
+  async realize(userId: string, id: string, dto: RealizeFixedOccurrenceDto) {
+    const result = await this.runSerializableTransaction(async (tx) => {
       const occurrence = await tx.fixedOccurrence.findFirst({
         where: { id, userId },
         include: { fixedExpense: true, fixedIncome: true },
@@ -75,6 +79,13 @@ export class FixedOccurrencesService {
       });
       return { occurrence: updated, transaction };
     });
+    await this.impacts?.evaluateBudgetsForCategoryMonth(
+      userId,
+      result.transaction.categoryId,
+      result.transaction.occurredAt.getUTCFullYear(),
+      result.transaction.occurredAt.getUTCMonth() + 1,
+    );
+    return result;
   }
 
   cancel(userId: string, id: string) {

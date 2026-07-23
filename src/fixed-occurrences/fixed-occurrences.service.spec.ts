@@ -47,7 +47,10 @@ function harness(options: Record<string, any> = {}) {
       }
     },
   };
-  return { service: new FixedOccurrencesService(prisma), state };
+  const impacts = options.impacts ?? {
+    evaluateBudgetsForCategoryMonth: async () => undefined,
+  };
+  return { service: new FixedOccurrencesService(prisma, impacts), state };
 }
 
 describe('FixedOccurrencesService realization', () => {
@@ -74,6 +77,23 @@ describe('FixedOccurrencesService realization', () => {
     assert.equal(context.state.transactions[0].categoryId, 'override-category');
     assert.equal(context.state.transactions[0].paymentMethod, 'transfer');
     assert.equal(context.state.transactions[0].occurredAt.toISOString(), '2026-08-10T14:30:00.000Z');
+  });
+
+  it('evaluates the affected budget only after the realization commits', async () => {
+    const evaluated: unknown[][] = [];
+    const impacts = {
+      evaluateBudgetsForCategoryMonth: async (...args: unknown[]) => {
+        evaluated.push(args);
+      },
+    };
+    const context = harness({ impacts });
+
+    await context.service.realize('user', 'occurrence', {
+      occurredAt: '2026-08-10T14:30:00.000Z',
+    });
+
+    assert.deepEqual(evaluated, [['user', 'category', 2026, 8]]);
+    assert.equal(context.state.occurrence.status, 'realized');
   });
 
   it('rejects archived/foreign accounts and foreign or incompatible categories', async () => {
