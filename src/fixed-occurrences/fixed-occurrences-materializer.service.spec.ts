@@ -12,28 +12,47 @@ const template = (overrides: Record<string, unknown> = {}): any => ({
 
 function harness(initial: any[] = [], templates: { expenses?: any[]; incomes?: any[] } = {}) {
   const rows = initial.map((row) => ({ ...row }));
+  const calls = { findMany: 0, createMany: 0, update: 0, transactions: 0 };
   const fixedOccurrence = {
-    updateMany: async ({ where, data }: any) => {
-      const matches = rows.filter((row) => row.status === where.status && row.year === where.year && row.month === where.month &&
-        (where.fixedExpenseId ? row.fixedExpenseId === where.fixedExpenseId : row.fixedIncomeId === where.fixedIncomeId));
-      matches.forEach((row) => Object.assign(row, data));
-      return { count: matches.length };
+    findMany: async ({ where }: any) => {
+      calls.findMany += 1;
+      return rows.filter((row) => {
+        const sourceMatches = where.fixedExpenseId
+          ? row.fixedExpenseId === where.fixedExpenseId
+          : row.fixedIncomeId === where.fixedIncomeId;
+        return sourceMatches && where.OR.some((period: any) => row.year === period.year && row.month === period.month);
+      });
     },
-    create: async ({ data }: any) => {
-      if (rows.some((row) => row.year === data.year && row.month === data.month &&
-        ((data.fixedExpenseId && row.fixedExpenseId === data.fixedExpenseId) || (data.fixedIncomeId && row.fixedIncomeId === data.fixedIncomeId)))) {
-        throw new Prisma.PrismaClientKnownRequestError('duplicate', { code: 'P2002', clientVersion: '7.8.0' });
+    createMany: async ({ data }: any) => {
+      calls.createMany += 1;
+      let count = 0;
+      for (const item of data) {
+        const duplicate = rows.some((row) => row.year === item.year && row.month === item.month &&
+          ((item.fixedExpenseId && row.fixedExpenseId === item.fixedExpenseId) || (item.fixedIncomeId && row.fixedIncomeId === item.fixedIncomeId)));
+        if (duplicate) continue;
+        rows.push({ id: `occurrence-${rows.length + 1}`, status: 'pending', ...item });
+        count += 1;
       }
-      const row = { id: `occurrence-${rows.length + 1}`, status: 'pending', ...data };
-      rows.push(row); return row;
+      return { count };
+    },
+    update: async ({ where, data }: any) => {
+      calls.update += 1;
+      const row = rows.find((item) => item.id === where.id);
+      if (!row) throw new Error('missing occurrence');
+      Object.assign(row, data);
+      return row;
     },
   };
   const prisma = {
     fixedOccurrence,
     fixedExpense: { findMany: async () => templates.expenses ?? [] },
     fixedIncome: { findMany: async () => templates.incomes ?? [] },
+    $transaction: async (operations: Promise<unknown>[]) => {
+      calls.transactions += 1;
+      return Promise.all(operations);
+    },
   };
-  return { service: new FixedOccurrencesMaterializerService(prisma as any), rows };
+  return { service: new FixedOccurrencesMaterializerService(prisma as any), rows, calls };
 }
 
 describe('FixedOccurrencesMaterializerService', () => {
@@ -76,5 +95,24 @@ describe('FixedOccurrencesMaterializerService', () => {
     await context.service.materializeAll(new Date('2026-07-01T00:00:00.000Z'));
     assert.equal(context.rows.filter((row) => row.type === 'expense' && row.fixedExpenseId).length, 14);
     assert.equal(context.rows.filter((row) => row.type === 'income' && row.fixedIncomeId).length, 14);
+  });
+
+  it('does not write again when the materialized snapshots are unchanged', async () => {
+    const context = harness();
+    const reference = new Date('2026-07-01T00:00:00.000Z');
+    await context.service.materializeExpense(template(), reference);
+    context.calls.createMany = 0;
+    context.calls.update = 0;
+    context.calls.transactions = 0;
+
+    const metrics = await context.service.materializeExpense(template(), reference);
+
+    assert.equal(metrics.recordsCreated, 0);
+    assert.equal(metrics.recordsUpdated, 0);
+    assert.equal(metrics.recordsCanceled, 0);
+    assert.equal(metrics.recordsSkipped, 14);
+    assert.equal(context.calls.createMany, 0);
+    assert.equal(context.calls.update, 0);
+    assert.equal(context.calls.transactions, 0);
   });
 });

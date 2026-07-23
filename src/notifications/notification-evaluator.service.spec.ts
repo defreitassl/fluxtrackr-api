@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { Prisma } from '@prisma/client';
-import { NotificationEvaluatorService } from './notification-evaluator.service';
+import {
+  NOTIFICATION_RECONCILIATION_CRON,
+  NotificationEvaluatorService,
+} from './notification-evaluator.service';
 
 const now = new Date('2026-07-16T12:00:00.000Z');
 
@@ -20,6 +23,7 @@ function createHarness({
     subscriptionCharge: { findFirst: async () => charge, findMany: async () => [] },
     categoryBudget: { findFirst: async () => budget, findMany: async () => [] },
     financialGoal: { findFirst: async () => goal, findMany: async () => [] },
+    notification: { findMany: async () => [] },
     user: { findMany: async () => [] },
   };
   const notifications: any = {
@@ -31,7 +35,7 @@ function createHarness({
   const preferences: any = { getEffective: async () => preference };
   const spending: any = { getSpendingByCategory: async () => new Map([[budget?.categoryId, { totalSpent: { greaterThanOrEqualTo: () => true } }]]) };
   const goals: any = { getGoalProgress: async () => ({ currentAmount: { greaterThanOrEqualTo: () => false } }) };
-  return { calls, client, evaluator: new NotificationEvaluatorService(client, notifications, preferences, spending, goals) };
+  return { calls, client, spending, evaluator: new NotificationEvaluatorService(client, notifications, preferences, spending, goals) };
 }
 
 function activeCall(calls: Array<{ name: string; args: unknown[] }>) {
@@ -39,6 +43,10 @@ function activeCall(calls: Array<{ name: string; args: unknown[] }>) {
 }
 
 describe('NotificationEvaluatorService reconciliation', () => {
+  it('uses a daily UTC reconciliation schedule', () => {
+    assert.equal(NOTIFICATION_RECONCILIATION_CRON, '0 15 0 * * *');
+  });
+
   it('resolves an older invoice date key before activating the current one', async () => {
     const { calls, client, evaluator } = createHarness({
       invoice: { id: 'invoice', status: 'open', dueDate: new Date('2026-07-19T00:00:00.000Z'), creditCard: { name: 'Nubank' }, installments: [{ installmentAmount: new Prisma.Decimal(100), status: 'pending' }] },
@@ -88,6 +96,84 @@ describe('NotificationEvaluatorService reconciliation', () => {
     (evaluator as any).evaluateFinancialEvent = async (_user: string, id: string) => { processed.push(id); };
     await evaluator.evaluateUser('user', now, client);
     assert.deepEqual(processed, ['healthy', 'event']);
+  });
+
+  it('queries only current candidates and preserves unresolved source ids once', async () => {
+    const { client, evaluator } = createHarness();
+    const queries: Record<string, any> = {};
+    client.creditCardInvoice.findMany = async (args: any) => {
+      queries.invoice = args;
+      return [{ id: 'invoice' }];
+    };
+    client.financialEvent.findMany = async (args: any) => {
+      queries.event = args;
+      return [];
+    };
+    client.subscriptionCharge.findMany = async (args: any) => {
+      queries.charge = args;
+      return [{ id: 'charge' }];
+    };
+    client.categoryBudget.findMany = async (args: any) => {
+      queries.budget = args;
+      return [{ id: 'budget' }];
+    };
+    client.financialGoal.findMany = async (args: any) => {
+      queries.goal = args;
+      return [{ id: 'goal' }];
+    };
+    client.notification.findMany = async (args: any) => {
+      queries.notification = args;
+      return [
+        { sourceType: 'credit_card_invoice', sourceId: 'invoice' },
+        { sourceType: 'financial_event', sourceId: 'historical-event' },
+        { sourceType: 'financial_event', sourceId: 'historical-event' },
+      ];
+    };
+    const processed: string[] = [];
+    (evaluator as any).evaluateInvoice = async (_user: string, id: string) => processed.push(`invoice:${id}`);
+    (evaluator as any).evaluateFinancialEvent = async (_user: string, id: string) => processed.push(`event:${id}`);
+    (evaluator as any).evaluateSubscriptionCharge = async (_user: string, id: string) => processed.push(`charge:${id}`);
+    (evaluator as any).evaluateBudget = async (_user: string, id: string) => processed.push(`budget:${id}`);
+    (evaluator as any).evaluateGoal = async (_user: string, id: string) => processed.push(`goal:${id}`);
+
+    const result = await evaluator.evaluateUser('user', now, client);
+
+    assert.deepEqual(queries.invoice.where, { userId: 'user', status: { in: ['open', 'closed', 'overdue'] } });
+    assert.deepEqual(queries.event.where, { userId: 'user', status: 'confirmed', date: { gte: new Date('2026-07-16T00:00:00.000Z') } });
+    assert.deepEqual(queries.charge.where, { userId: 'user', status: 'pending' });
+    assert.deepEqual(queries.budget.where, { userId: 'user', isActive: true, year: 2026, month: 7 });
+    assert.deepEqual(queries.goal.where, { userId: 'user', status: 'active', targetDate: { not: null } });
+    assert.deepEqual(queries.notification.where, { userId: 'user', resolvedAt: null });
+    assert.deepEqual(processed, ['invoice:invoice', 'event:historical-event', 'charge:charge', 'budget:budget', 'goal:goal']);
+    assert.deepEqual(result, {
+      invoiceCandidates: 1,
+      eventCandidates: 1,
+      subscriptionChargeCandidates: 1,
+      budgetCandidates: 1,
+      goalCandidates: 1,
+    });
+  });
+
+  it('calculates budget spending once per user and period during reconciliation', async () => {
+    const firstBudget = {
+      id: 'budget-1', userId: 'user', isActive: true, year: 2026, month: 7,
+      categoryId: 'category-1', limitAmount: new Prisma.Decimal(100), warningPercentage: 80,
+      category: { isActive: true, name: 'Food' },
+    };
+    const secondBudget = { ...firstBudget, id: 'budget-2', categoryId: 'category-2' };
+    const { client, evaluator, spending } = createHarness();
+    client.categoryBudget.findMany = async () => [{ id: firstBudget.id }, { id: secondBudget.id }];
+    client.categoryBudget.findFirst = async ({ where }: any) =>
+      [firstBudget, secondBudget].find((budget) => budget.id === where.id) ?? null;
+    let spendingCalls = 0;
+    spending.getSpendingByCategory = async () => {
+      spendingCalls += 1;
+      return new Map<string, any>();
+    };
+
+    await evaluator.evaluateUser('user', now, client);
+
+    assert.equal(spendingCalls, 1);
   });
 
   it('isolates a failed user and continues with the next user', async () => {

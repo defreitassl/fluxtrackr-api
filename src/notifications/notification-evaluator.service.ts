@@ -1,41 +1,115 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { Prisma } from '@prisma/client';
+import { NotificationSourceType, Prisma } from '@prisma/client';
 import { calculateCreditCardInvoiceTotal } from '../credit-card-invoices/credit-card-invoice-total';
-import { CategoryBudgetSpendingService, getBudgetStatus } from '../category-budgets/category-budget-spending.service';
+import { CategoryBudgetSpendingService, CategorySpending, getBudgetStatus } from '../category-budgets/category-budget-spending.service';
 import { FinancialGoalProgressService } from '../financial-goals/financial-goal-progress.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationPreferencesService } from '../notification-preferences/notification-preferences.service';
 import { NotificationsService, NotificationUpsert } from './notifications.service';
+import { ExclusiveJobRunner } from '../observability/exclusive-job-runner';
+import { measureJob } from '../observability/resource-metrics';
 
 type Db = PrismaService | Prisma.TransactionClient;
 const day = (value: Date) => new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 const dateKey = (value: Date) => day(value).toISOString().slice(0, 10);
+export const NOTIFICATION_RECONCILIATION_CRON = '0 15 0 * * *';
+
+type CandidateCounts = {
+  invoiceCandidates: number;
+  eventCandidates: number;
+  subscriptionChargeCandidates: number;
+  budgetCandidates: number;
+  goalCandidates: number;
+};
+
+type BudgetSpendingLoader = (
+  year: number,
+  month: number,
+) => Promise<Map<string, CategorySpending>>;
+
+const emptyCandidateCounts = (): CandidateCounts => ({
+  invoiceCandidates: 0,
+  eventCandidates: 0,
+  subscriptionChargeCandidates: 0,
+  budgetCandidates: 0,
+  goalCandidates: 0,
+});
 
 @Injectable()
 export class NotificationEvaluatorService implements OnApplicationBootstrap {
   private readonly logger = new Logger(NotificationEvaluatorService.name);
+  private readonly jobs = new ExclusiveJobRunner();
   constructor(private readonly prisma: PrismaService, private readonly notifications: NotificationsService, private readonly preferences: NotificationPreferencesService, private readonly spending: CategoryBudgetSpendingService, private readonly goals: FinancialGoalProgressService) {}
-  async onApplicationBootstrap() { await this.evaluateAllUsers(new Date()); }
-  @Cron('15 * * * *', { timeZone: 'UTC' }) async evaluateHourly() { await this.evaluateAllUsers(new Date()); }
+  async onApplicationBootstrap() { await this.runReconciliation('bootstrap'); }
+  @Cron(NOTIFICATION_RECONCILIATION_CRON, { timeZone: 'UTC' })
+  async evaluateDaily() { await this.runReconciliation('cron'); }
   async evaluateAllUsers(asOf: Date) {
     const users = await this.prisma.user.findMany({ select: { id: true } });
+    const candidates = emptyCandidateCounts();
     for (const user of users) {
-      await this.safeEvaluate('user', user.id, () => this.evaluateUser(user.id, asOf));
+      const userCandidates = await this.safeEvaluate('user', user.id, () => this.evaluateUser(user.id, asOf));
+      if (!userCandidates) continue;
+      candidates.invoiceCandidates += userCandidates.invoiceCandidates;
+      candidates.eventCandidates += userCandidates.eventCandidates;
+      candidates.subscriptionChargeCandidates += userCandidates.subscriptionChargeCandidates;
+      candidates.budgetCandidates += userCandidates.budgetCandidates;
+      candidates.goalCandidates += userCandidates.goalCandidates;
     }
+    return { usersProcessed: users.length, ...candidates };
   }
-  async evaluateUser(userId: string, asOf: Date, client: Db = this.prisma) {
-    const [invoices, events, charges, budgets, goals] = await Promise.all([
-      client.creditCardInvoice.findMany({ where: { userId }, select: { id: true } }), client.financialEvent.findMany({ where: { userId }, select: { id: true } }), client.subscriptionCharge.findMany({ where: { userId }, select: { id: true } }), client.categoryBudget.findMany({ where: { userId }, select: { id: true } }), client.financialGoal.findMany({ where: { userId }, select: { id: true } }),
+  private runReconciliation(origin: 'bootstrap' | 'cron' | 'manual') {
+    return measureJob(this.logger, 'notification_reconciliation', { origin }, () =>
+      this.jobs.run('notification_reconciliation', () => this.evaluateAllUsers(new Date())),
+    );
+  }
+  async evaluateUser(userId: string, asOf: Date, client: Db = this.prisma): Promise<CandidateCounts> {
+    const current = day(asOf);
+    const [invoices, events, charges, budgets, goals, unresolved] = await Promise.all([
+      client.creditCardInvoice.findMany({ where: { userId, status: { in: ['open', 'closed', 'overdue'] } }, select: { id: true } }),
+      client.financialEvent.findMany({ where: { userId, status: 'confirmed', date: { gte: current } }, select: { id: true } }),
+      client.subscriptionCharge.findMany({ where: { userId, status: 'pending' }, select: { id: true } }),
+      client.categoryBudget.findMany({ where: { userId, isActive: true, year: current.getUTCFullYear(), month: current.getUTCMonth() + 1 }, select: { id: true } }),
+      client.financialGoal.findMany({ where: { userId, status: 'active', targetDate: { not: null } }, select: { id: true } }),
+      client.notification.findMany({ where: { userId, resolvedAt: null }, select: { sourceType: true, sourceId: true } }),
     ]);
-    for (const row of invoices) await this.safeEvaluate('credit_card_invoice', row.id, () => this.evaluateInvoice(userId, row.id, asOf, client));
-    for (const row of events) await this.safeEvaluate('financial_event', row.id, () => this.evaluateFinancialEvent(userId, row.id, asOf, client));
-    for (const row of charges) await this.safeEvaluate('subscription_charge', row.id, () => this.evaluateSubscriptionCharge(userId, row.id, asOf, client));
-    for (const row of budgets) await this.safeEvaluate('category_budget', row.id, () => this.evaluateBudget(userId, row.id, asOf, client));
-    for (const row of goals) await this.safeEvaluate('financial_goal', row.id, () => this.evaluateGoal(userId, row.id, asOf, client));
+    const ids = {
+      credit_card_invoice: new Set(invoices.map((row) => row.id)),
+      financial_event: new Set(events.map((row) => row.id)),
+      subscription_charge: new Set(charges.map((row) => row.id)),
+      category_budget: new Set(budgets.map((row) => row.id)),
+      financial_goal: new Set(goals.map((row) => row.id)),
+    };
+    for (const notification of unresolved) {
+      ids[notification.sourceType]?.add(notification.sourceId);
+    }
+
+    const spendingByPeriod = new Map<string, Promise<Map<string, CategorySpending>>>();
+    const loadSpending: BudgetSpendingLoader = (year, month) => {
+      const key = `${year}-${month}`;
+      const cached = spendingByPeriod.get(key);
+      if (cached) return cached;
+      const calculated = this.spending.getSpendingByCategory(userId, year, month, asOf);
+      spendingByPeriod.set(key, calculated);
+      return calculated;
+    };
+
+    for (const id of ids.credit_card_invoice) await this.safeEvaluate('credit_card_invoice', id, () => this.evaluateInvoice(userId, id, asOf, client));
+    for (const id of ids.financial_event) await this.safeEvaluate('financial_event', id, () => this.evaluateFinancialEvent(userId, id, asOf, client));
+    for (const id of ids.subscription_charge) await this.safeEvaluate('subscription_charge', id, () => this.evaluateSubscriptionCharge(userId, id, asOf, client));
+    for (const id of ids.category_budget) await this.safeEvaluate('category_budget', id, () => this.evaluateBudget(userId, id, asOf, client, loadSpending));
+    for (const id of ids.financial_goal) await this.safeEvaluate('financial_goal', id, () => this.evaluateGoal(userId, id, asOf, client));
+
+    return {
+      invoiceCandidates: ids.credit_card_invoice.size,
+      eventCandidates: ids.financial_event.size,
+      subscriptionChargeCandidates: ids.subscription_charge.size,
+      budgetCandidates: ids.category_budget.size,
+      goalCandidates: ids.financial_goal.size,
+    };
   }
-  async safeEvaluate(sourceType: string, sourceId: string, evaluation: () => Promise<unknown>): Promise<void> {
-    try { await evaluation(); }
+  async safeEvaluate<T>(sourceType: string, sourceId: string, evaluation: () => Promise<T>): Promise<T | undefined> {
+    try { return await evaluation(); }
     catch (error) {
       const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`Notification evaluation failed for ${sourceType} ${sourceId}`, stack);
@@ -78,10 +152,10 @@ export class NotificationEvaluatorService implements OnApplicationBootstrap {
     if (!pref.enabled) return;
     return this.activate(client, userId, { category: 'subscriptions', type, severity: overdue ? 'critical' : 'warning', title: overdue ? 'Cobrança vencida' : 'Cobrança próxima', message: overdue ? `${charge.name} estava prevista para ${dateKey(charge.chargeDate)} e continua pendente.` : `${charge.name} será cobrada em ${dateKey(charge.chargeDate)}.`, sourceType: 'subscription_charge', sourceId: charge.id, dedupeKey, scheduledFor: charge.chargeDate });
   }
-  async evaluateBudget(userId: string, budgetId: string, asOf: Date, client: Db = this.prisma) {
+  async evaluateBudget(userId: string, budgetId: string, asOf: Date, client: Db = this.prisma, loadSpending: BudgetSpendingLoader = (year, month) => this.spending.getSpendingByCategory(userId, year, month, asOf)) {
     const budget = await client.categoryBudget.findFirst({ where: { id: budgetId, userId }, include: { category: true } });
     if (!budget || !budget.isActive || !budget.category.isActive || budget.year !== asOf.getUTCFullYear() || budget.month !== asOf.getUTCMonth() + 1) return this.notifications.resolveSource(client, userId, 'category_budget', budgetId, asOf);
-    const spending = await this.spending.getSpendingByCategory(userId, budget.year, budget.month, asOf); const status = getBudgetStatus(spending.get(budget.categoryId)?.totalSpent ?? new Prisma.Decimal(0), budget.limitAmount, budget.warningPercentage); if (status === 'within_budget') return this.notifications.resolveSource(client, userId, 'category_budget', budgetId, asOf);
+    const spending = await loadSpending(budget.year, budget.month); const status = getBudgetStatus(spending.get(budget.categoryId)?.totalSpent ?? new Prisma.Decimal(0), budget.limitAmount, budget.warningPercentage); if (status === 'within_budget') return this.notifications.resolveSource(client, userId, 'category_budget', budgetId, asOf);
     const type = status === 'exceeded' ? 'budget_exceeded' : 'budget_near_limit';
     const dedupeKey = `${type}:${budget.id}:${budget.year}-${String(budget.month).padStart(2, '0')}`;
     await this.notifications.resolveSourceExceptDedupeKey(client, userId, 'category_budget', budget.id, dedupeKey, asOf);
